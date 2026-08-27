@@ -49,7 +49,7 @@ class RelayForegroundService : Service() {
     }
 
     private fun currentState(): RelayState =
-        RelayState(manager.role, manager.connected, manager.remoteName, manager.remoteBattery)
+        RelayState(manager.role, manager.connected, manager.remoteName, manager.remoteBattery, manager.remoteAndroid)
 
     private fun buildNotification(state: RelayState): Notification {
         val nm = getSystemService(NotificationManager::class.java)
@@ -66,8 +66,9 @@ class RelayForegroundService : Service() {
 
         val text = if (state.connected) {
             val name = state.remoteName.ifBlank { "未知设备" }
+            val android = state.remoteAndroid.ifBlank { "版本未知" }
             val battery = if (state.remoteBattery >= 0) "${state.remoteBattery}%" else "电量未知"
-            "已连接 · $name · 电量 $battery"
+            "已连接 · $name · $android · 电量 $battery"
         } else {
             "未连接"
         }

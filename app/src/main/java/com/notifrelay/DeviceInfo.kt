@@ -3,6 +3,7 @@ package com.notifrelay
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.os.BatteryManager
+import android.os.Build
 import android.provider.Settings
 
 /**
@@ -37,4 +38,7 @@ object DeviceInfo {
             -1
         }
     }
+
+    /** 当前 Android 版本，如 "Android 14"。 */
+    fun androidVersion(): String = "Android " + Build.VERSION.RELEASE
 }

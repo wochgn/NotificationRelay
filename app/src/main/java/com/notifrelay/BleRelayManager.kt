@@ -31,6 +31,7 @@ import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
+import java.util.LinkedHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -40,8 +41,15 @@ data class RelayState(
     val role: BleRelayManager.Role = BleRelayManager.Role.NONE,
     val connected: Boolean = false,
     val remoteName: String = "",
-    val remoteBattery: Int = -1
+    val remoteBattery: Int = -1,
+    val remoteAndroid: String = ""
 )
+
+/** 扫描发现到的设备（去重后的一行）。 */
+data class ScanDevice(val address: String, val name: String, val rssi: Int)
+
+/** 发现状态快照（扫描开关 + 已发现设备列表）。 */
+data class DiscoveryState(val scanning: Boolean, val devices: List<ScanDevice>)
 
 /**
  * BLE 双向传输管理。
@@ -74,6 +82,8 @@ class BleRelayManager private constructor(context: Context) {
         private const val HEARTBEAT_MS = 60_000L
         // 外设 notify 无确认，靠发送间隔做流控，避免连发导致丢片
         private const val PERIPHERAL_NOTIFY_DELAY_MS = 25L
+        // 单次扫描时长，超时自动停扫（不停广播）
+        private const val SCAN_TIMEOUT_MS = 15_000L
     }
 
     enum class Role { NONE, AUTO, PERIPHERAL, CENTRAL }
@@ -87,9 +97,15 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile var connected: Boolean = false
     @Volatile var remoteName: String = ""
     @Volatile var remoteBattery: Int = -1
+    @Volatile var remoteAndroid: String = ""
 
     // 状态观察者（UI / 常驻通知）
     private val stateListeners = CopyOnWriteArrayList<(RelayState) -> Unit>()
+
+    // 发现观察者（设备列表 UI）
+    private val discoveryListeners = CopyOnWriteArrayList<(DiscoveryState) -> Unit>()
+    // 扫描结果去重累积（address -> 设备）
+    private val discoveredDevices = LinkedHashMap<String, ScanDevice>()
 
     // 心跳：周期上报电量
     private val handler = Handler(Looper.getMainLooper())
@@ -103,6 +119,17 @@ class BleRelayManager private constructor(context: Context) {
     // 外设发送的延时调度（用命名 Runnable 以便 stopAll 时精准移除）
     private val peripheralSendRunnable = object : Runnable {
         override fun run() { peripheralSendNext() }
+    }
+
+    // 扫描超时：SCAN_TIMEOUT_MS 后自动停扫
+    private val scanTimeoutRunnable = object : Runnable {
+        override fun run() {
+            if (scanning) {
+                log("扫描超时，已停止扫描")
+                stopScanning()
+                notifyDiscovery()
+            }
+        }
     }
 
     // ---- 外设侧 ----
@@ -150,48 +177,83 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun notifyState() {
-        val s = RelayState(role, connected, remoteName, remoteBattery)
+        val s = RelayState(role, connected, remoteName, remoteBattery, remoteAndroid)
         stateListeners.forEach { it(s) }
+    }
+
+    fun observeDiscovery(listener: (DiscoveryState) -> Unit) {
+        discoveryListeners.add(listener)
+    }
+
+    fun removeDiscovery(listener: (DiscoveryState) -> Unit) {
+        discoveryListeners.remove(listener)
+    }
+
+    private fun notifyDiscovery() {
+        val s = DiscoveryState(scanning, discoveredDevices.values.toList())
+        discoveryListeners.forEach { it(s) }
     }
 
     // ================= 对外接口 =================
 
-    fun startPeripheral() {
+    /**
+     * 发现模式：同时广播（可被发现）+ 扫描（发现对方），但**不**自动连接。
+     * 用户点按设备列表里的设备再调用 connectTo() 主动连接（我方作中心）。
+     */
+    fun startDiscovery() {
+        if (connected) return
         stopAll()
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
-        role = Role.PERIPHERAL
+        role = Role.AUTO
         notifyState()
 
+        // 可被发现：GATT server + 广播
         val server = btManager.openGattServer(appContext, gattServerCallback)
         gattServer = server
         if (!server.addService(buildService())) {
-            log("外设：添加 GATT 服务失败")
+            log("添加 GATT 服务失败")
         }
 
         advertiser = adapter.bluetoothLeAdvertiser
-        val settings = AdvertiseSettings.Builder()
+        val advSettings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setConnectable(true)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .build()
-        // 注意：BLE 广播包有 31 字节硬限制。setIncludeDeviceName(true) 会把设备名塞进广播，
-        // 设备名 + 16 字节 128-bit UUID 极易超过 31 字节，触发 ADVERTISE_FAILED_DATA_TOO_LARGE(code=1)。
-        // 因此只广播 service UUID（中心按 UUID 过滤即可发现），不广播设备名。
-        val data = AdvertiseData.Builder()
+        // advertise data 只放 service UUID（供对方 ScanFilter 过滤）。
+        // 设备名放 scan response（独立 31 字节预算），避免和 128-bit UUID 挤在 advertise data 里超限。
+        val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
             .build()
-        advertiser?.startAdvertising(settings, data, advertiseCallback)
-        log("外设模式：开始广播，等待中心连接…")
+        val scanResponse = AdvertiseData.Builder()
+            .setIncludeDeviceName(true)
+            .build()
+        advertiser?.startAdvertising(advSettings, advData, scanResponse, advertiseCallback)
+
+        startScanning()
+        log("发现模式：广播 + 扫描，等待点按连接…")
     }
 
-    fun startCentral() {
-        stopAll()
-        val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
-        if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
-        role = Role.CENTRAL
-        notifyState()
+    /** 只停广播与扫描，不影响已建立的连接。 */
+    fun stopDiscovery() {
+        stopAdvertising()
+        stopScanning()
+        notifyDiscovery()
+    }
 
+    /** 点按设备：我方作中心主动连接对方。 */
+    fun connectTo(address: String) {
+        val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
+        if (address.isBlank()) return
+        stopDiscovery()
+        val device = adapter.getRemoteDevice(address)
+        log("连接 $address …")
+        connectAsCentral(device)
+    }
+
+    private fun startScanning() {
+        val adapter = btAdapter ?: return
         scanner = adapter.bluetoothLeScanner
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
@@ -201,45 +263,8 @@ class BleRelayManager private constructor(context: Context) {
             .build()
         scanning = true
         scanner?.startScan(listOf(filter), settings, scanCallback)
-        log("中心模式：开始扫描…")
-    }
-
-    fun startAuto() {
-        stopAll()
-        val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
-        if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
-        role = Role.AUTO
-        notifyState()
-
-        // 同时开启 GATT 服务 + 广播（可作外设）与扫描（可作中心）
-        val server = btManager.openGattServer(appContext, gattServerCallback)
-        gattServer = server
-        if (!server.addService(buildService())) {
-            log("外设：添加 GATT 服务失败")
-        }
-
-        advertiser = adapter.bluetoothLeAdvertiser
-        val advSettings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setConnectable(true)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .build()
-        val advData = AdvertiseData.Builder()
-            .addServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
-            .build()
-        advertiser?.startAdvertising(advSettings, advData, advertiseCallback)
-
-        scanner = adapter.bluetoothLeScanner
-        val scanFilter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
-            .build()
-        val scanSettings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-        scanning = true
-        scanner?.startScan(listOf(scanFilter), scanSettings, scanCallback)
-
-        log("自动模式：同时广播与扫描，等待发现对方…")
+        handler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS)
+        notifyDiscovery()
     }
 
     fun sendToRemote(json: String) {
@@ -320,12 +345,11 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun stopAll() {
-        try { if (scanning) { scanning = false; scanner?.stopScan(scanCallback) } } catch (_: Exception) {}
         try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
         bluetoothGatt = null
         charFromCentral = null
-        try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
-        advertiser = null
+        stopAdvertising()
+        stopScanning()
         try { centralDevice?.let { gattServer?.cancelConnection(it) } } catch (_: Exception) {}
         try { gattServer?.close() } catch (_: Exception) {}
         gattServer = null
@@ -340,10 +364,13 @@ class BleRelayManager private constructor(context: Context) {
         }
         recvBuffer.reset()
         recvTotalLen = -1
+        discoveredDevices.clear()
+        notifyDiscovery()
         role = Role.NONE
         connected = false
         remoteName = ""
         remoteBattery = -1
+        remoteAndroid = ""
         mtu = 23
         notifyState()
         log("已停止")
@@ -359,6 +386,7 @@ class BleRelayManager private constructor(context: Context) {
             scanning = false
             try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
         }
+        handler.removeCallbacks(scanTimeoutRunnable)
     }
 
     // ================= 应用层消息 =================
@@ -369,6 +397,7 @@ class BleRelayManager private constructor(context: Context) {
             .put("type", "hello")
             .put("device", name)
             .put("battery", DeviceInfo.batteryPercent(appContext))
+            .put("android", DeviceInfo.androidVersion())
         sendToRemote(obj.toString())
     }
 
@@ -376,6 +405,7 @@ class BleRelayManager private constructor(context: Context) {
         val obj = JSONObject()
             .put("type", "status")
             .put("battery", DeviceInfo.batteryPercent(appContext))
+            .put("android", DeviceInfo.androidVersion())
         sendToRemote(obj.toString())
     }
 
@@ -434,7 +464,7 @@ class BleRelayManager private constructor(context: Context) {
                 centralDevice = device
                 connected = true
                 mtu = 23
-                stopScanning()
+                stopDiscovery()
                 notifyState()
                 log("外设：中心已连接 ${device.name ?: device.address}")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -442,6 +472,7 @@ class BleRelayManager private constructor(context: Context) {
                 connected = false
                 remoteName = ""
                 remoteBattery = -1
+                remoteAndroid = ""
                 notifyState()
                 log("外设：中心已断开 status=$status")
             }
@@ -494,23 +525,11 @@ class BleRelayManager private constructor(context: Context) {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (!scanning) return
-            scanning = false
-            try { scanner?.stopScan(this) } catch (_: Exception) {}
             val device = result.device
-
-            // 自动协商：地址字典序较小的一方作中心（发起连接）。
-            // 我方与对方各自用自己的地址比较，规则一致 → 恰好一方连、另一方等。
-            val local = btAdapter?.address.orEmpty()
-            val remote = device.address.orEmpty()
-            if (local.isNotEmpty() && remote.isNotEmpty() && remote < local) {
-                log("自动协商：对方作中心，我继续广播等待连接")
-                return
-            }
-
-            // 我作中心：停止广播，连接对方
-            stopAdvertising()
-            log("自动协商：我作中心，连接 ${device.name ?: device.address}")
-            connectAsCentral(device)
+            val address = device.address ?: return
+            val name = device.name ?: ""
+            discoveredDevices[address] = ScanDevice(address, name, result.rssi)
+            notifyDiscovery()
         }
         override fun onScanFailed(errorCode: Int) {
             log("扫描失败 code=$errorCode")
@@ -535,6 +554,7 @@ class BleRelayManager private constructor(context: Context) {
                 connected = false
                 remoteName = ""
                 remoteBattery = -1
+                remoteAndroid = ""
                 notifyState()
                 log("中心：连接断开 status=$status")
             }
@@ -660,11 +680,14 @@ class BleRelayManager private constructor(context: Context) {
                 "hello" -> {
                     remoteName = obj.optString("device", "").ifBlank { remoteName }
                     remoteBattery = obj.optInt("battery", -1)
+                    remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
                     notifyState()
-                    log("握手：远端 ${remoteName.ifBlank { "未知" }} 电量 $remoteBattery%")
+                    log("握手：远端 ${remoteName.ifBlank { "未知" }} $remoteAndroid 电量 $remoteBattery%")
+                    saveRemoteIfKnown()
                 }
                 "status" -> {
                     remoteBattery = obj.optInt("battery", -1)
+                    remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
                     notifyState()
                 }
                 else -> {
@@ -687,6 +710,18 @@ class BleRelayManager private constructor(context: Context) {
             log("解析失败：${e.message}")
         }
     }
+
+    /** 学到远端名字后，把当前远端设备记入已配对列表（记住设备，不做系统绑定）。 */
+    private fun saveRemoteIfKnown() {
+        val addr = remoteAddress() ?: return
+        if (remoteName.isBlank()) return
+        SettingsRepository.get(appContext).saveDevice(SavedDevice(addr, remoteName, remoteAndroid))
+    }
+
+    /** 当前远端设备的 MAC 地址（未连接为 null）。 */
+    fun remoteAddress(): String? =
+        if (role == Role.PERIPHERAL) centralDevice?.address
+        else bluetoothGatt?.device?.address
 
     private fun postLocalNotification(device: String, app: String, title: String, text: String, key: String, ongoing: Boolean) {
         val nm = appContext.getSystemService(NotificationManager::class.java)
