@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.Fragment
 import com.notifrelay.BleRelayManager
@@ -31,8 +32,17 @@ class DevicesFragment : Fragment() {
 
     private var lastDiscovery = DiscoveryState(false, emptyList())
     private var adapter: DeviceAdapter? = null
+    private var wasConnected = false
 
-    private val stateListener: (RelayState) -> Unit = { _ -> activity?.runOnUiThread { refresh() } }
+    private val stateListener: (RelayState) -> Unit = { _ ->
+        activity?.runOnUiThread {
+            val nowConnected = manager.connected
+            val justDisconnected = wasConnected && !nowConnected
+            wasConnected = nowConnected
+            if (justDisconnected) manager.startDiscovery()
+            refresh()
+        }
+    }
     private val discoveryListener: (DiscoveryState) -> Unit = { s ->
         lastDiscovery = s
         activity?.runOnUiThread { refresh() }
@@ -55,6 +65,7 @@ class DevicesFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        wasConnected = manager.connected
         manager.observeState(stateListener)
         manager.observeDiscovery(discoveryListener)
         if (!manager.connected) manager.startDiscovery()
@@ -111,7 +122,8 @@ class DevicesFragment : Fragment() {
                         d.address,
                         d.name.ifBlank { d.address },
                         d.android.ifBlank { d.address },
-                        remoteAddr == d.address
+                        remoteAddr == d.address,
+                        deletable = true
                     )
                 )
             }
@@ -133,13 +145,29 @@ class DevicesFragment : Fragment() {
         }
 
         if (adapter == null) {
-            adapter = DeviceAdapter(requireContext(), rows) { address ->
-                if (!manager.connected) manager.connectTo(address)
-            }
+            adapter = DeviceAdapter(
+                requireContext(),
+                rows,
+                { address -> if (!manager.connected) manager.connectTo(address) },
+                { address -> confirmDelete(address) }
+            )
             binding.listDevices.adapter = adapter
         } else {
             adapter?.setRows(rows)
         }
+    }
+
+    private fun confirmDelete(address: String) {
+        val name = repo.findByAddress(address)?.name ?: address
+        AlertDialog.Builder(requireContext())
+            .setTitle("删除设备")
+            .setMessage("确定删除已配对设备「$name」吗？")
+            .setPositiveButton("删除") { _, _ ->
+                repo.removeDevice(address)
+                refresh()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun isBluetoothEnabled(): Boolean {
@@ -157,13 +185,15 @@ private data class DeviceRow(
     val address: String,
     val name: String,
     val subtitle: String,
-    val isConnected: Boolean
+    val isConnected: Boolean,
+    val deletable: Boolean = false
 )
 
 private class DeviceAdapter(
     private val context: Context,
     rows: List<Any>,
-    private val onConnect: (String) -> Unit
+    private val onConnect: (String) -> Unit,
+    private val onDelete: (String) -> Unit
 ) : BaseAdapter() {
 
     private var rows: List<Any> = rows
@@ -199,6 +229,11 @@ private class DeviceAdapter(
             val state = v.findViewById<TextView>(R.id.tv_state)
             state.text = if (row.isConnected) "已连接" else "连接"
             v.setOnClickListener { if (!row.isConnected) onConnect(row.address) }
+            if (row.deletable) {
+                v.setOnLongClickListener { onDelete(row.address); true }
+            } else {
+                v.setOnLongClickListener(null)
+            }
             v
         }
     }
