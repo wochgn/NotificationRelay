@@ -256,6 +256,7 @@ class BleRelayManager private constructor(context: Context) {
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (address.isBlank()) return
         stopDiscovery()
+        closeGattServer() // 我方作中心：关闭本机 GATT server，避免其回调把 role 顶回外设
         val device = adapter.getRemoteDevice(address)
         log("连接 $address …")
         connectAsCentral(device)
@@ -392,6 +393,13 @@ class BleRelayManager private constructor(context: Context) {
         advertiser = null
     }
 
+    /** 关闭本机 GATT server（我方作中心时调用）：server 关闭后，其 onConnectionStateChange 不会再把 role 顶回外设。 */
+    private fun closeGattServer() {
+        try { gattServer?.close() } catch (_: Exception) {}
+        gattServer = null
+        charToCentral = null
+    }
+
     private fun stopScanning() {
         if (scanning) {
             scanning = false
@@ -467,6 +475,12 @@ class BleRelayManager private constructor(context: Context) {
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                // 防御：我方已是中心时，忽略本机 server 对同一物理链路报上来的连接事件，
+                // 避免把 role 从 CENTRAL 顶回 PERIPHERAL，导致中心走错发送路径。
+                if (role == Role.CENTRAL) {
+                    log("外设：忽略 server 侧重复连接（我方已是中心）")
+                    return
+                }
                 role = Role.PERIPHERAL
                 centralDevice = device
                 connected = true
@@ -556,6 +570,7 @@ class BleRelayManager private constructor(context: Context) {
             }
             log("自动协商：我作中心，连接 $name")
             stopDiscovery()
+            closeGattServer() // 我方作中心：关闭本机 GATT server，避免其回调把 role 顶回外设
             connectAsCentral(device)
         }
         override fun onScanFailed(errorCode: Int) {
