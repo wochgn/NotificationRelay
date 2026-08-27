@@ -8,7 +8,7 @@ import androidx.fragment.app.Fragment
 import com.google.android.material.color.DynamicColors
 import com.notifrelay.databinding.ActivityMainBinding
 import com.notifrelay.ui.AppsFragment
-import com.notifrelay.ui.ConnectionFragment
+import com.notifrelay.ui.DevicesFragment
 import com.notifrelay.ui.SettingsFragment
 
 class MainActivity : AppCompatActivity() {
@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
-                R.id.nav_connection -> switchTo(ConnectionFragment())
+                R.id.nav_devices -> switchTo(DevicesFragment())
                 R.id.nav_apps -> switchTo(AppsFragment())
                 R.id.nav_settings -> switchTo(SettingsFragment())
                 else -> return@setOnItemSelectedListener false
@@ -45,7 +45,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null) {
-            binding.bottomNav.selectedItemId = R.id.nav_connection
+            binding.bottomNav.selectedItemId = R.id.nav_devices
         }
     }
 

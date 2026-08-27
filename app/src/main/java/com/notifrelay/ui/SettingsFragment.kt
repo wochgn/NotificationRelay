@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.notifrelay.DeviceInfo
+import com.notifrelay.EventLog
 import com.notifrelay.ForegroundServiceController
 import com.notifrelay.R
 import com.notifrelay.SettingsRepository
@@ -18,6 +19,10 @@ class SettingsFragment : Fragment() {
     private val binding get() = _binding!!
 
     private val repo get() = SettingsRepository.get(requireContext())
+
+    private val logListener: (String) -> Unit = { line ->
+        activity?.runOnUiThread { appendLog(line) }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -62,8 +67,23 @@ class SettingsFragment : Fragment() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        EventLog.observe(logListener)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        EventLog.remove(logListener)
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    private fun appendLog(line: String) {
+        binding.tvLog.append(line + "\n")
+        binding.scrollLog.post { binding.scrollLog.fullScroll(View.FOCUS_DOWN) }
     }
 }
