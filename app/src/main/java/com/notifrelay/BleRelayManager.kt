@@ -72,6 +72,8 @@ class BleRelayManager private constructor(context: Context) {
                 instance ?: BleRelayManager(context.applicationContext).also { instance = it }
             }
         private const val HEARTBEAT_MS = 60_000L
+        // 外设 notify 无确认，靠发送间隔做流控，避免连发导致丢片
+        private const val PERIPHERAL_NOTIFY_DELAY_MS = 25L
     }
 
     enum class Role { NONE, AUTO, PERIPHERAL, CENTRAL }
@@ -98,6 +100,11 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    // 外设发送的延时调度（用命名 Runnable 以便 stopAll 时精准移除）
+    private val peripheralSendRunnable = object : Runnable {
+        override fun run() { peripheralSendNext() }
+    }
+
     // ---- 外设侧 ----
     private var gattServer: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
@@ -118,6 +125,11 @@ class BleRelayManager private constructor(context: Context) {
     // 中心发送队列（串行写，onCharacteristicWrite 驱动下一片）
     private val sendQueue = ArrayDeque<ByteArray>()
     private var writing = false
+
+    // 外设发送队列：notify 无确认，按固定间隔逐片发送（流控），避免连发丢片
+    private val peripheralQueue = ArrayDeque<ByteArray>()
+    private var peripheralSending = false
+    private val peripheralLock = Any()
 
     private var notifId = 1000
 
@@ -251,20 +263,59 @@ class BleRelayManager private constructor(context: Context) {
                     log("外设无中心连接，丢弃通知")
                     return
                 }
-                var sent = 0
-                for (c in chunks) {
-                    charOut.value = c
-                    // 用 3 参数重载（返回 boolean，API 18+ 兼容）。
-                    // 4 参数重载 API 33 才有、返回 int 状态码，在 Android 12 上会 NoSuchMethodError。
-                    @Suppress("DEPRECATION")
-                    val ok = server.notifyCharacteristicChanged(dev, charOut, false)
-                    if (ok) sent++
-                }
-                if (sent < chunks.size) {
-                    log("外设 notify 未送达：$sent/${chunks.size} 片（中心可能未订阅）")
-                }
+                enqueuePeripheral(chunks)
             }
             Role.NONE, Role.AUTO -> log("未连接，丢弃通知")
+        }
+    }
+
+    /**
+     * 外设→中心发送：notify 是「无确认」的，连发会溢出 GATT server 缓冲导致丢片，
+     * 中心侧永远凑不齐完整 JSON。这里像中心写队列一样串行化，并给每片留出发送间隔。
+     */
+    private fun enqueuePeripheral(chunks: List<ByteArray>) {
+        synchronized(peripheralLock) {
+            peripheralQueue.addAll(chunks)
+            if (!peripheralSending) {
+                peripheralSending = true
+                handler.post(peripheralSendRunnable)
+            }
+        }
+    }
+
+    private fun peripheralSendNext() {
+        val dev = centralDevice
+        val char = charToCentral
+        val server = gattServer
+        if (!connected || dev == null || char == null || server == null) {
+            synchronized(peripheralLock) {
+                peripheralQueue.clear()
+                peripheralSending = false
+            }
+            return
+        }
+        var chunk: ByteArray? = null
+        synchronized(peripheralLock) {
+            if (peripheralQueue.isEmpty()) {
+                peripheralSending = false
+            } else {
+                chunk = peripheralQueue.removeFirst()
+            }
+        }
+        val data = chunk ?: return
+        char.value = data
+        // 用 3 参数重载（返回 boolean，API 18+ 兼容）。
+        // 4 参数重载 API 33 才有、返回 int 状态码，在 Android 12 上会 NoSuchMethodError。
+        @Suppress("DEPRECATION")
+        val ok = server.notifyCharacteristicChanged(dev, char, false)
+        if (ok) {
+            handler.postDelayed(peripheralSendRunnable, PERIPHERAL_NOTIFY_DELAY_MS)
+        } else {
+            synchronized(peripheralLock) {
+                peripheralQueue.clear()
+                peripheralSending = false
+            }
+            log("外设 notify 发送失败，清空待发队列")
         }
     }
 
@@ -282,6 +333,11 @@ class BleRelayManager private constructor(context: Context) {
         charToCentral = null
         sendQueue.clear()
         writing = false
+        handler.removeCallbacks(peripheralSendRunnable)
+        synchronized(peripheralLock) {
+            peripheralQueue.clear()
+            peripheralSending = false
+        }
         recvBuffer.reset()
         recvTotalLen = -1
         role = Role.NONE
