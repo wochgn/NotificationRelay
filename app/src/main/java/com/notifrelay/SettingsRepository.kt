@@ -64,6 +64,12 @@ class SettingsRepository private constructor(context: Context) {
         prefs.edit().putStringSet(KEY_WHITELIST, set).apply()
     }
 
+    fun setWhitelistForAll(pkgs: List<String>, enabled: Boolean) {
+        val set = whitelist.toMutableSet()
+        if (enabled) set.addAll(pkgs) else set.removeAll(pkgs)
+        prefs.edit().putStringSet(KEY_WHITELIST, set).apply()
+    }
+
     private val whitelist: Set<String>
         get() = prefs.getStringSet(KEY_WHITELIST, emptySet()) ?: emptySet()
 }

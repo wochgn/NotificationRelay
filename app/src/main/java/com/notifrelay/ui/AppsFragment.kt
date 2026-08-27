@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.google.android.material.switchmaterial.SwitchMaterial
 import com.notifrelay.R
@@ -56,6 +57,17 @@ class AppsFragment : Fragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
+
+        binding.btnAllOn.setOnClickListener {
+            repo.setWhitelistForAll(allApps.map { it.pkg }, true)
+            adapter?.notifyDataSetChanged()
+            Toast.makeText(requireContext(), "已全部开启", Toast.LENGTH_SHORT).show()
+        }
+        binding.btnAllOff.setOnClickListener {
+            repo.setWhitelistForAll(allApps.map { it.pkg }, false)
+            adapter?.notifyDataSetChanged()
+            Toast.makeText(requireContext(), "已全部关闭", Toast.LENGTH_SHORT).show()
+        }
 
         loadAppsAsync()
     }
