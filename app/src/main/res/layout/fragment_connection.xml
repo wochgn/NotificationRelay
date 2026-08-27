@@ -36,28 +36,12 @@
         android:layout_marginTop="8dp"
         android:text="开启通知使用权" />
 
-    <LinearLayout
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_connect"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:orientation="horizontal">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_peripheral"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="作为外设" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btn_central"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="作为中心" />
-    </LinearLayout>
+        android:text="连接" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_stop"

@@ -63,11 +63,8 @@ class ConnectionFragment : Fragment() {
 
         binding.btnPermissions.setOnClickListener { requestPermissions() }
         binding.btnListener.setOnClickListener { openListenerSettings() }
-        binding.btnPeripheral.setOnClickListener {
-            if (hasAllPermissions()) manager.startPeripheral() else requestPermissions()
-        }
-        binding.btnCentral.setOnClickListener {
-            if (hasAllPermissions()) manager.startCentral() else requestPermissions()
+        binding.btnConnect.setOnClickListener {
+            if (hasAllPermissions()) manager.startAuto() else requestPermissions()
         }
         binding.btnStop.setOnClickListener { manager.stopAll() }
     }
@@ -110,6 +107,7 @@ class ConnectionFragment : Fragment() {
         val listener = if (isListenerEnabled()) "已开启" else "未开启"
         val perms = if (hasAllPermissions()) "已授予" else "未授予"
         val role = when (manager.role) {
+            BleRelayManager.Role.AUTO -> "自动（待连接）"
             BleRelayManager.Role.PERIPHERAL -> "外设(广播)"
             BleRelayManager.Role.CENTRAL -> "中心(扫描)"
             else -> "未启动"
