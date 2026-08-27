@@ -142,6 +142,7 @@ class BleRelayManager private constructor(context: Context) {
     private var bluetoothGatt: BluetoothGatt? = null
     private var scanner: BluetoothLeScanner? = null
     private var charFromCentral: BluetoothGattCharacteristic? = null
+    private var charFromPeripheral: BluetoothGattCharacteristic? = null
     @Volatile private var mtu = 23
     @Volatile private var scanning = false
 
@@ -348,6 +349,7 @@ class BleRelayManager private constructor(context: Context) {
         try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
         bluetoothGatt = null
         charFromCentral = null
+        charFromPeripheral = null
         stopAdvertising()
         stopScanning()
         try { centralDevice?.let { gattServer?.cancelConnection(it) } } catch (_: Exception) {}
@@ -473,6 +475,7 @@ class BleRelayManager private constructor(context: Context) {
                 remoteName = ""
                 remoteBattery = -1
                 remoteAndroid = ""
+                role = Role.NONE
                 notifyState()
                 log("外设：中心已断开 status=$status")
             }
@@ -555,6 +558,11 @@ class BleRelayManager private constructor(context: Context) {
                 remoteName = ""
                 remoteBattery = -1
                 remoteAndroid = ""
+                try { gatt.close() } catch (_: Exception) {}
+                bluetoothGatt = null
+                charFromCentral = null
+                charFromPeripheral = null
+                role = Role.NONE
                 notifyState()
                 log("中心：连接断开 status=$status")
             }
@@ -563,8 +571,8 @@ class BleRelayManager private constructor(context: Context) {
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             this@BleRelayManager.mtu = mtu
             log("中心：MTU=$mtu")
-            // 订阅完成后的首个安全写入点：把本机设备名+电量推给对方
-            sendHello()
+            // MTU 协商完成后再订阅（特征值已在 onServicesDiscovered 取到）
+            subscribeToNotifications(gatt)
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -578,26 +586,21 @@ class BleRelayManager private constructor(context: Context) {
                 return
             }
             charFromCentral = service.getCharacteristic(Constants.CHAR_FROM_CENTRAL)
-            val charRecv = service.getCharacteristic(Constants.CHAR_FROM_PERIPHERAL)
-            if (charRecv == null) {
+            charFromPeripheral = service.getCharacteristic(Constants.CHAR_FROM_PERIPHERAL)
+            if (charFromPeripheral == null) {
                 log("中心：未找到接收特征值")
                 return
             }
-            gatt.setCharacteristicNotification(charRecv, true)
-            val cccd = charRecv.getDescriptor(Constants.CCCD_UUID)
-            if (cccd == null) {
-                log("中心：CCCD 为 null（外设未添加 CCCD 描述符）")
-                return
-            }
-            cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-            val ok = gatt.writeDescriptor(cccd)
-            log("中心：服务已发现，发起订阅（writeDescriptor=$ok）")
+            // 先协商 MTU（无 pending 操作时调用），完成后在 onMtuChanged 里订阅
+            val ok = gatt.requestMtu(517)
+            log("中心：服务已发现，请求 MTU 517（requestMtu=$ok）")
+            if (!ok) subscribeToNotifications(gatt)
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             log("中心：订阅${if (status == BluetoothGatt.GATT_SUCCESS) "成功" else "失败($status)"}")
-            // 订阅完成后才协商 MTU（串行；即使失败也不影响基本收发）
-            gatt.requestMtu(517)
+            // 订阅成功后把本机设备名/版本/电量推给对方（hello 只依赖订阅，不依赖 MTU，更可靠）
+            sendHello()
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
@@ -611,6 +614,19 @@ class BleRelayManager private constructor(context: Context) {
                 characteristic.value?.let { onChunkReceived(it) }
             }
         }
+    }
+
+    private fun subscribeToNotifications(gatt: BluetoothGatt) {
+        val charRecv = charFromPeripheral ?: run { log("中心：接收特征值未就绪"); return }
+        gatt.setCharacteristicNotification(charRecv, true)
+        val cccd = charRecv.getDescriptor(Constants.CCCD_UUID)
+        if (cccd == null) {
+            log("中心：CCCD 为 null（外设未添加 CCCD 描述符）")
+            return
+        }
+        cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        val ok = gatt.writeDescriptor(cccd)
+        log("中心：发起订阅（writeDescriptor=$ok）")
     }
 
     private fun writeNext() {
