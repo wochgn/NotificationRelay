@@ -36,6 +36,9 @@ class RelayListenerService : NotificationListenerService() {
             (sbn.notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0
         if (isForegroundService) return
 
+        // 应用过滤：开启「仅转发选中」后，只转发白名单中的应用
+        if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
+
         val deviceName = SettingsRepository.get(this).resolvedDeviceName()
         val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
         EventLog.add("本机通知 [$sbn.packageName]")
