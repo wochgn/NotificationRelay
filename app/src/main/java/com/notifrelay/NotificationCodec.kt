@@ -13,7 +13,7 @@ object NotificationCodec {
     // 截断正文，避免超大文本（保证单条通知 JSON 远小于 64KB，配合 16bit 帧头）
     private const val MAX_TEXT_LEN = 2000
 
-    fun toJson(sbn: StatusBarNotification, context: Context): String {
+    fun toJson(sbn: StatusBarNotification, context: Context, deviceName: String): String {
         val n = sbn.notification
         val extras = n.extras
 
@@ -31,6 +31,7 @@ object NotificationCodec {
         }
 
         return JSONObject().apply {
+            put("device", deviceName)
             put("pkg", sbn.packageName)
             put("app", appLabel)
             put("title", title)

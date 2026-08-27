@@ -36,7 +36,8 @@ class RelayListenerService : NotificationListenerService() {
             (sbn.notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0
         if (isForegroundService) return
 
-        val json = NotificationCodec.toJson(sbn, applicationContext)
+        val deviceName = SettingsRepository.get(this).resolvedDeviceName()
+        val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
         EventLog.add("本机通知 [$sbn.packageName]")
         BleRelayManager.get(this).sendToRemote(json)
     }

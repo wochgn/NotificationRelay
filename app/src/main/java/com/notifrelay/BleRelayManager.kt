@@ -449,18 +449,19 @@ class BleRelayManager private constructor(context: Context) {
         log("收到远程通知")
         try {
             val obj = JSONObject(json)
+            val device = obj.optString("device", "")
             val app = obj.optString("app", "远程")
             val title = obj.optString("title", "")
             val text = obj.optString("text", "")
             val key = obj.optString("key", "")
             val ongoing = obj.optBoolean("ongoing", false)
-            postLocalNotification(app, title, text, key, ongoing)
+            postLocalNotification(device, app, title, text, key, ongoing)
         } catch (e: Exception) {
             log("解析失败：${e.message}")
         }
     }
 
-    private fun postLocalNotification(app: String, title: String, text: String, key: String, ongoing: Boolean) {
+    private fun postLocalNotification(device: String, app: String, title: String, text: String, key: String, ongoing: Boolean) {
         val nm = appContext.getSystemService(NotificationManager::class.java)
         ensureChannels(nm)
 
@@ -470,15 +471,18 @@ class BleRelayManager private constructor(context: Context) {
         // 用通知 key 的 hash 作为稳定 id：同一条通知的更新会覆盖同一条，而不是堆积新通知
         val id = if (key.isNotEmpty()) key.hashCode() else notifId++
 
+        // 标题格式：<远端设备名> | <应用名> | <通知标题>（空段自动省略）
+        val titleLine = listOf(device, app, title).filter { it.isNotBlank() }.joinToString(" | ")
+
         val n = NotificationCompat.Builder(appContext, channelId)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(if (title.isNotBlank()) "[$app] $title" else app)
+            .setContentTitle(titleLine)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .build()
         nm.notify(id, n)
-        log("已弹出本地通知：[$app] $title（${if (ongoing) "常驻" else "普通"}通道）")
+        log("已弹出本地通知：$titleLine（${if (ongoing) "常驻" else "普通"}通道）")
     }
 
     private fun ensureChannels(nm: NotificationManager) {
