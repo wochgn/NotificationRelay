@@ -2,6 +2,11 @@ package com.notifrelay
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.json.JSONArray
+import org.json.JSONObject
+
+/** 已配对设备（记住设备即可，不做系统蓝牙绑定）。 */
+data class SavedDevice(val address: String, val name: String, val android: String)
 
 /**
  * 应用设置（SharedPreferences 持久化）。
@@ -25,6 +30,8 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_ONLY_WHITELIST = "only_whitelist"
         private const val KEY_WHITELIST = "whitelist"
         private const val KEY_FOREGROUND_ENABLED = "foreground_enabled"
+        private const val KEY_ONBOARDED = "onboarded"
+        private const val KEY_SAVED_DEVICES = "saved_devices"
     }
 
     // 设备名：null 表示使用系统设备名
@@ -43,6 +50,11 @@ class SettingsRepository private constructor(context: Context) {
     var foregroundEnabled: Boolean
         get() = prefs.getBoolean(KEY_FOREGROUND_ENABLED, false)
         set(v) = prefs.edit().putBoolean(KEY_FOREGROUND_ENABLED, v).apply()
+
+    // 是否已完成首次启动引导
+    var onboarded: Boolean
+        get() = prefs.getBoolean(KEY_ONBOARDED, false)
+        set(v) = prefs.edit().putBoolean(KEY_ONBOARDED, v).apply()
 
     // 解析后的设备名：用户自定义优先，否则系统设备名
     fun resolvedDeviceName(): String {
@@ -69,6 +81,51 @@ class SettingsRepository private constructor(context: Context) {
         if (enabled) set.addAll(pkgs) else set.removeAll(pkgs)
         prefs.edit().putStringSet(KEY_WHITELIST, set).apply()
     }
+
+    // ---- 已配对设备（记住设备即可）----
+
+    fun savedDevices(): List<SavedDevice> {
+        val raw = prefs.getString(KEY_SAVED_DEVICES, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                SavedDevice(
+                    o.optString("address"),
+                    o.optString("name"),
+                    o.optString("android")
+                ).takeIf { it.address.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveDevice(device: SavedDevice) {
+        if (device.address.isBlank()) return
+        val list = savedDevices().filter { it.address != device.address }.toMutableList()
+        list.add(0, device)
+        prefs.edit().putString(KEY_SAVED_DEVICES, toJsonArray(list).toString()).apply()
+    }
+
+    fun removeDevice(address: String) {
+        val list = savedDevices().filter { it.address != address }
+        prefs.edit().putString(KEY_SAVED_DEVICES, toJsonArray(list).toString()).apply()
+    }
+
+    fun findByAddress(address: String): SavedDevice? =
+        savedDevices().firstOrNull { it.address == address }
+
+    private fun toJsonArray(list: List<SavedDevice>): JSONArray =
+        JSONArray().apply {
+            list.forEach { d ->
+                put(JSONObject().apply {
+                    put("address", d.address)
+                    put("name", d.name)
+                    put("android", d.android)
+                })
+            }
+        }
 
     private val whitelist: Set<String>
         get() = prefs.getStringSet(KEY_WHITELIST, emptySet()) ?: emptySet()
