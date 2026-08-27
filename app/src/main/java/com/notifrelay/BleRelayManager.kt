@@ -545,6 +545,18 @@ class BleRelayManager private constructor(context: Context) {
             val key = if (deviceId.isNotBlank()) deviceId else address
             discoveredDevices[key] = ScanDevice(deviceId, address, name, result.rssi)
             notifyDiscovery()
+
+            // 自动协商中心/外设：deviceId 字典序较小的一方作中心主动连接，另一方继续广播等待。
+            // 规则两侧一致 → 恰好一方连、一方等，不会双连。
+            if (connected || deviceId.isBlank()) return
+            val myId = SettingsRepository.get(appContext).deviceId()
+            if (deviceId < myId) {
+                log("自动协商：对方（$name）作中心，我继续广播等待")
+                return
+            }
+            log("自动协商：我作中心，连接 $name")
+            stopDiscovery()
+            connectAsCentral(device)
         }
         override fun onScanFailed(errorCode: Int) {
             log("扫描失败 code=$errorCode")
