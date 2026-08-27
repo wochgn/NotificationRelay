@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.Fragment
@@ -112,30 +113,48 @@ class DevicesFragment : Fragment() {
     private fun rebuildList() {
         val rows = mutableListOf<Any>()
         val saved = repo.savedDevices()
-        val remoteAddr = manager.remoteAddress()
+        val discovered = lastDiscovery.devices
+        val discoveredByDeviceId = discovered
+            .filter { it.deviceId.isNotBlank() }
+            .associateBy { it.deviceId }
+        val savedDeviceIds = saved.map { it.deviceId }.toSet()
+        val connectedDeviceId = manager.remoteDeviceId
 
         if (saved.isNotEmpty()) {
             rows.add(HeaderRow("已配对设备"))
             saved.forEach { d ->
+                val scan = discoveredByDeviceId[d.deviceId]
+                val address = scan?.address.orEmpty()
                 rows.add(
                     DeviceRow(
-                        d.address,
-                        d.name.ifBlank { d.address },
-                        d.android.ifBlank { d.address },
-                        remoteAddr == d.address,
-                        deletable = true
+                        d.deviceId,
+                        address,
+                        d.name.ifBlank { address },
+                        d.android.ifBlank { if (scan != null) address else "未发现，请扫描" },
+                        d.deviceId == connectedDeviceId,
+                        deletable = true,
+                        connectable = scan != null
                     )
                 )
             }
         }
 
-        val savedAddrs = saved.map { it.address }.toSet()
-        val nearby = lastDiscovery.devices.filter { it.address !in savedAddrs }
+        val nearby = discovered.filter { it.deviceId.isBlank() || it.deviceId !in savedDeviceIds }
         if (nearby.isNotEmpty()) {
             rows.add(HeaderRow("附近设备"))
             nearby.forEach { s ->
                 val name = s.name.ifBlank { s.address }
-                rows.add(DeviceRow(s.address, name, s.address, remoteAddr == s.address))
+                rows.add(
+                    DeviceRow(
+                        s.deviceId,
+                        s.address,
+                        name,
+                        s.address,
+                        s.deviceId == connectedDeviceId,
+                        deletable = false,
+                        connectable = true
+                    )
+                )
             }
         }
 
@@ -149,7 +168,8 @@ class DevicesFragment : Fragment() {
                 requireContext(),
                 rows,
                 { address -> if (!manager.connected) manager.connectTo(address) },
-                { address -> confirmDelete(address) }
+                { deviceId -> confirmDelete(deviceId) },
+                { toast("设备未发现，请先点「扫描设备」") }
             )
             binding.listDevices.adapter = adapter
         } else {
@@ -157,17 +177,21 @@ class DevicesFragment : Fragment() {
         }
     }
 
-    private fun confirmDelete(address: String) {
-        val name = repo.findByAddress(address)?.name ?: address
+    private fun confirmDelete(deviceId: String) {
+        val name = repo.findByDeviceId(deviceId)?.name ?: deviceId
         AlertDialog.Builder(requireContext())
             .setTitle("删除设备")
             .setMessage("确定删除已配对设备「$name」吗？")
             .setPositiveButton("删除") { _, _ ->
-                repo.removeDevice(address)
+                repo.removeDevice(deviceId)
                 refresh()
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun toast(msg: String) {
+        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
     }
 
     private fun isBluetoothEnabled(): Boolean {
@@ -182,18 +206,21 @@ class DevicesFragment : Fragment() {
 
 private data class HeaderRow(val title: String)
 private data class DeviceRow(
+    val deviceId: String,
     val address: String,
     val name: String,
     val subtitle: String,
     val isConnected: Boolean,
-    val deletable: Boolean = false
+    val deletable: Boolean = false,
+    val connectable: Boolean = true
 )
 
 private class DeviceAdapter(
     private val context: Context,
     rows: List<Any>,
     private val onConnect: (String) -> Unit,
-    private val onDelete: (String) -> Unit
+    private val onDelete: (String) -> Unit,
+    private val onUnavailable: () -> Unit
 ) : BaseAdapter() {
 
     private var rows: List<Any> = rows
@@ -228,9 +255,12 @@ private class DeviceAdapter(
             v.findViewById<TextView>(R.id.tv_subtitle).text = row.subtitle
             val state = v.findViewById<TextView>(R.id.tv_state)
             state.text = if (row.isConnected) "已连接" else "连接"
-            v.setOnClickListener { if (!row.isConnected) onConnect(row.address) }
+            v.setOnClickListener {
+                if (row.isConnected) return@setOnClickListener
+                if (row.connectable) onConnect(row.address) else onUnavailable()
+            }
             if (row.deletable) {
-                v.setOnLongClickListener { onDelete(row.address); true }
+                v.setOnLongClickListener { onDelete(row.deviceId); true }
             } else {
                 v.setOnLongClickListener(null)
             }

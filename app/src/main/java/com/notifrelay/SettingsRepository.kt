@@ -5,8 +5,8 @@ import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** 已配对设备（记住设备即可，不做系统蓝牙绑定）。 */
-data class SavedDevice(val address: String, val name: String, val android: String)
+/** 已配对设备（记住设备即可，不做系统蓝牙绑定）。以稳定 deviceId 为身份，不用会轮换的 MAC。 */
+data class SavedDevice(val deviceId: String, val name: String, val android: String)
 
 /**
  * 应用设置（SharedPreferences 持久化）。
@@ -32,6 +32,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_FOREGROUND_ENABLED = "foreground_enabled"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
+        private const val KEY_DEVICE_ID = "device_id"
     }
 
     // 设备名：null 表示使用系统设备名
@@ -55,6 +56,16 @@ class SettingsRepository private constructor(context: Context) {
     var onboarded: Boolean
         get() = prefs.getBoolean(KEY_ONBOARDED, false)
         set(v) = prefs.edit().putBoolean(KEY_ONBOARDED, v).apply()
+
+    // 本机稳定标识：首次生成后持久化（BLE MAC 会轮换，不能作身份）
+    fun deviceId(): String {
+        var id = prefs.getString(KEY_DEVICE_ID, null)
+        if (id.isNullOrBlank()) {
+            id = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 16)
+            prefs.edit().putString(KEY_DEVICE_ID, id).apply()
+        }
+        return id
+    }
 
     // 解析后的设备名：用户自定义优先，否则系统设备名
     fun resolvedDeviceName(): String {
@@ -91,10 +102,10 @@ class SettingsRepository private constructor(context: Context) {
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
                 SavedDevice(
-                    o.optString("address"),
+                    o.optString("id"),
                     o.optString("name"),
                     o.optString("android")
-                ).takeIf { it.address.isNotBlank() }
+                ).takeIf { it.deviceId.isNotBlank() }
             }
         } catch (e: Exception) {
             emptyList()
@@ -102,25 +113,25 @@ class SettingsRepository private constructor(context: Context) {
     }
 
     fun saveDevice(device: SavedDevice) {
-        if (device.address.isBlank()) return
-        val list = savedDevices().filter { it.address != device.address }.toMutableList()
+        if (device.deviceId.isBlank()) return
+        val list = savedDevices().filter { it.deviceId != device.deviceId }.toMutableList()
         list.add(0, device)
         prefs.edit().putString(KEY_SAVED_DEVICES, toJsonArray(list).toString()).apply()
     }
 
-    fun removeDevice(address: String) {
-        val list = savedDevices().filter { it.address != address }
+    fun removeDevice(deviceId: String) {
+        val list = savedDevices().filter { it.deviceId != deviceId }
         prefs.edit().putString(KEY_SAVED_DEVICES, toJsonArray(list).toString()).apply()
     }
 
-    fun findByAddress(address: String): SavedDevice? =
-        savedDevices().firstOrNull { it.address == address }
+    fun findByDeviceId(deviceId: String): SavedDevice? =
+        savedDevices().firstOrNull { it.deviceId == deviceId }
 
     private fun toJsonArray(list: List<SavedDevice>): JSONArray =
         JSONArray().apply {
             list.forEach { d ->
                 put(JSONObject().apply {
-                    put("address", d.address)
+                    put("id", d.deviceId)
                     put("name", d.name)
                     put("android", d.android)
                 })

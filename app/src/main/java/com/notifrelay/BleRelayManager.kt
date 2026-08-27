@@ -45,8 +45,8 @@ data class RelayState(
     val remoteAndroid: String = ""
 )
 
-/** 扫描发现到的设备（去重后的一行）。 */
-data class ScanDevice(val address: String, val name: String, val rssi: Int)
+/** 扫描发现到的设备（去重后的一行）。deviceId 为稳定身份，address 仅用于当前连接。 */
+data class ScanDevice(val deviceId: String, val address: String, val name: String, val rssi: Int)
 
 /** 发现状态快照（扫描开关 + 已发现设备列表）。 */
 data class DiscoveryState(val scanning: Boolean, val devices: List<ScanDevice>)
@@ -98,6 +98,7 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile var remoteName: String = ""
     @Volatile var remoteBattery: Int = -1
     @Volatile var remoteAndroid: String = ""
+    @Volatile var remoteDeviceId: String = ""
 
     // 状态观察者（UI / 常驻通知）
     private val stateListeners = CopyOnWriteArrayList<(RelayState) -> Unit>()
@@ -227,10 +228,17 @@ class BleRelayManager private constructor(context: Context) {
         val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
             .build()
-        val scanResponse = AdvertiseData.Builder()
-            .setIncludeDeviceName(true)
-            .build()
-        advertiser?.startAdvertising(advSettings, advData, scanResponse, advertiseCallback)
+        val scanResponseBuilder = AdvertiseData.Builder()
+        // 厂商数据(12 字节) + 名称 AD 头(2 字节) + 名称；名称 > 17 字节则省略，避免超过 31 字节
+        val nameBytes = (adapter.name ?: "").toByteArray(Charsets.UTF_8)
+        if (nameBytes.size <= 17) {
+            scanResponseBuilder.setIncludeDeviceName(true)
+        }
+        scanResponseBuilder.addManufacturerData(
+            Constants.MANUFACTURER_ID,
+            hexToBytes(SettingsRepository.get(appContext).deviceId())
+        )
+        advertiser?.startAdvertising(advSettings, advData, scanResponseBuilder.build(), advertiseCallback)
 
         startScanning()
         log("发现模式：广播 + 扫描，等待点按连接…")
@@ -373,6 +381,7 @@ class BleRelayManager private constructor(context: Context) {
         remoteName = ""
         remoteBattery = -1
         remoteAndroid = ""
+        remoteDeviceId = ""
         mtu = 23
         notifyState()
         log("已停止")
@@ -394,22 +403,18 @@ class BleRelayManager private constructor(context: Context) {
     // ================= 应用层消息 =================
 
     private fun sendHello() {
-        val name = SettingsRepository.get(appContext).resolvedDeviceName()
-        val obj = JSONObject()
-            .put("type", "hello")
-            .put("device", name)
-            .put("battery", DeviceInfo.batteryPercent(appContext))
-            .put("android", DeviceInfo.androidVersion())
-        sendToRemote(obj.toString())
+        sendToRemote(infoJson().put("type", "hello").toString())
     }
 
     private fun sendStatus() {
-        val obj = JSONObject()
-            .put("type", "status")
-            .put("battery", DeviceInfo.batteryPercent(appContext))
-            .put("android", DeviceInfo.androidVersion())
-        sendToRemote(obj.toString())
+        sendToRemote(infoJson().put("type", "status").toString())
     }
+
+    private fun infoJson(): JSONObject = JSONObject()
+        .put("device", SettingsRepository.get(appContext).resolvedDeviceName())
+        .put("id", SettingsRepository.get(appContext).deviceId())
+        .put("battery", DeviceInfo.batteryPercent(appContext))
+        .put("android", DeviceInfo.androidVersion())
 
     // ================= 服务构建 =================
 
@@ -475,6 +480,7 @@ class BleRelayManager private constructor(context: Context) {
                 remoteName = ""
                 remoteBattery = -1
                 remoteAndroid = ""
+                remoteDeviceId = ""
                 role = Role.NONE
                 notifyState()
                 log("外设：中心已断开 status=$status")
@@ -531,7 +537,13 @@ class BleRelayManager private constructor(context: Context) {
             val device = result.device
             val address = device.address ?: return
             val name = device.name ?: ""
-            discoveredDevices[address] = ScanDevice(address, name, result.rssi)
+            val deviceId = result.scanRecord
+                ?.getManufacturerSpecificData(Constants.MANUFACTURER_ID)
+                ?.let { bytesToHex(it) }
+                .orEmpty()
+            // 用稳定 deviceId 去重（缺失时退回 address）
+            val key = if (deviceId.isNotBlank()) deviceId else address
+            discoveredDevices[key] = ScanDevice(deviceId, address, name, result.rssi)
             notifyDiscovery()
         }
         override fun onScanFailed(errorCode: Int) {
@@ -558,6 +570,7 @@ class BleRelayManager private constructor(context: Context) {
                 remoteName = ""
                 remoteBattery = -1
                 remoteAndroid = ""
+                remoteDeviceId = ""
                 try { gatt.close() } catch (_: Exception) {}
                 bluetoothGatt = null
                 charFromCentral = null
@@ -569,10 +582,9 @@ class BleRelayManager private constructor(context: Context) {
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            // 主动不协商 MTU，保持默认 23：不同机型 MTU 不对称会导致大包被对端拒收
             this@BleRelayManager.mtu = mtu
             log("中心：MTU=$mtu")
-            // MTU 协商完成后再订阅（特征值已在 onServicesDiscovered 取到）
-            subscribeToNotifications(gatt)
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -591,15 +603,12 @@ class BleRelayManager private constructor(context: Context) {
                 log("中心：未找到接收特征值")
                 return
             }
-            // 先协商 MTU（无 pending 操作时调用），完成后在 onMtuChanged 里订阅
-            val ok = gatt.requestMtu(517)
-            log("中心：服务已发现，请求 MTU 517（requestMtu=$ok）")
-            if (!ok) subscribeToNotifications(gatt)
+            subscribeToNotifications(gatt)
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
             log("中心：订阅${if (status == BluetoothGatt.GATT_SUCCESS) "成功" else "失败($status)"}")
-            // 订阅成功后把本机设备名/版本/电量推给对方（hello 只依赖订阅，不依赖 MTU，更可靠）
+            // 订阅成功后把本机设备名/版本/电量推给对方
             sendHello()
         }
 
@@ -689,12 +698,31 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    private fun bytesToHex(bytes: ByteArray): String {
+        val hex = "0123456789abcdef".toCharArray()
+        val sb = StringBuilder(bytes.size * 2)
+        for (b in bytes) {
+            val v = b.toInt() and 0xFF
+            sb.append(hex[v ushr 4]).append(hex[v and 0x0F])
+        }
+        return sb.toString()
+    }
+
+    private fun hexToBytes(hex: String): ByteArray {
+        val out = ByteArray(hex.length / 2)
+        for (i in hex.indices step 2) {
+            out[i / 2] = ((Character.digit(hex[i], 16) shl 4) + Character.digit(hex[i + 1], 16)).toByte()
+        }
+        return out
+    }
+
     private fun handleReceivedMessage(json: String) {
         try {
             val obj = JSONObject(json)
             when (obj.optString("type", "notif")) {
                 "hello" -> {
                     remoteName = obj.optString("device", "").ifBlank { remoteName }
+                    remoteDeviceId = obj.optString("id", "").ifBlank { remoteDeviceId }
                     remoteBattery = obj.optInt("battery", -1)
                     remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
                     notifyState()
@@ -702,9 +730,12 @@ class BleRelayManager private constructor(context: Context) {
                     saveRemoteIfKnown()
                 }
                 "status" -> {
+                    remoteName = obj.optString("device", "").ifBlank { remoteName }
+                    remoteDeviceId = obj.optString("id", "").ifBlank { remoteDeviceId }
                     remoteBattery = obj.optInt("battery", -1)
                     remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
                     notifyState()
+                    saveRemoteIfKnown()
                 }
                 else -> {
                     log("收到远程通知")
@@ -727,17 +758,11 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
-    /** 学到远端名字后，把当前远端设备记入已配对列表（记住设备，不做系统绑定）。 */
+    /** 学到远端名字/ID 后，把当前远端设备记入已配对列表（记住设备，不做系统绑定）。 */
     private fun saveRemoteIfKnown() {
-        val addr = remoteAddress() ?: return
-        if (remoteName.isBlank()) return
-        SettingsRepository.get(appContext).saveDevice(SavedDevice(addr, remoteName, remoteAndroid))
+        if (remoteDeviceId.isBlank() || remoteName.isBlank()) return
+        SettingsRepository.get(appContext).saveDevice(SavedDevice(remoteDeviceId, remoteName, remoteAndroid))
     }
-
-    /** 当前远端设备的 MAC 地址（未连接为 null）。 */
-    fun remoteAddress(): String? =
-        if (role == Role.PERIPHERAL) centralDevice?.address
-        else bluetoothGatt?.device?.address
 
     private fun postLocalNotification(device: String, app: String, title: String, text: String, key: String, ongoing: Boolean) {
         val nm = appContext.getSystemService(NotificationManager::class.java)
