@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.notifrelay.DeviceInfo
+import com.notifrelay.ForegroundServiceController
 import com.notifrelay.R
 import com.notifrelay.SettingsRepository
 import com.notifrelay.databinding.FragmentSettingsBinding
@@ -46,6 +47,18 @@ class SettingsFragment : Fragment() {
             repo.deviceName = null
             binding.etDeviceName.setText(DeviceInfo.systemName(requireContext()))
             Toast.makeText(requireContext(), "已恢复为系统设备名", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.switchForeground.isChecked = repo.foregroundEnabled
+        binding.switchForeground.setOnCheckedChangeListener { _, checked ->
+            repo.foregroundEnabled = checked
+            if (checked) ForegroundServiceController.start(requireContext())
+            else ForegroundServiceController.stop(requireContext())
+            Toast.makeText(
+                requireContext(),
+                if (checked) "常驻后台已开启" else "常驻后台已关闭",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 

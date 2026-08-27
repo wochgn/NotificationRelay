@@ -16,6 +16,7 @@ import androidx.fragment.app.Fragment
 import com.notifrelay.BleRelayManager
 import com.notifrelay.EventLog
 import com.notifrelay.R
+import com.notifrelay.RelayState
 import com.notifrelay.databinding.FragmentConnectionBinding
 
 class ConnectionFragment : Fragment() {
@@ -27,6 +28,10 @@ class ConnectionFragment : Fragment() {
 
     private val logListener: (String) -> Unit = { line ->
         activity?.runOnUiThread { appendLog(line) }
+    }
+
+    private val stateListener: (RelayState) -> Unit = { _ ->
+        activity?.runOnUiThread { updateStatus() }
     }
 
     private val requiredPermissions: Array<String> = buildList {
@@ -70,12 +75,14 @@ class ConnectionFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         EventLog.observe(logListener)
+        manager.observeState(stateListener)
         updateStatus()
     }
 
     override fun onPause() {
         super.onPause()
         EventLog.remove(logListener)
+        manager.removeState(stateListener)
     }
 
     override fun onDestroyView() {
@@ -108,7 +115,13 @@ class ConnectionFragment : Fragment() {
             else -> "未启动"
         }
         val conn = if (manager.connected) "已连接" else "未连接"
-        binding.tvStatus.text = "通知使用权：$listener\n权限：$perms\n角色：$role（$conn）"
+        var line = "通知使用权：$listener\n权限：$perms\n角色：$role（$conn）"
+        if (manager.connected) {
+            val name = manager.remoteName.ifBlank { "未知设备" }
+            val battery = if (manager.remoteBattery >= 0) "${manager.remoteBattery}%" else "电量未知"
+            line += "\n远端：$name · 电量 $battery"
+        }
+        binding.tvStatus.text = line
     }
 
     private fun appendLog(line: String) {

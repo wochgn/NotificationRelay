@@ -29,6 +29,11 @@ class MainActivity : AppCompatActivity() {
             WindowInsetsCompat.CONSUMED
         }
 
+        // 若用户开启了常驻后台，启动前台服务保活
+        if (SettingsRepository.get(this).foregroundEnabled) {
+            ForegroundServiceController.start(this)
+        }
+
         binding.bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_connection -> switchTo(ConnectionFragment())

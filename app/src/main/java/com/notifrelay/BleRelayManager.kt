@@ -24,11 +24,24 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
+import java.util.concurrent.CopyOnWriteArrayList
+
+/**
+ * 连接状态快照，供 UI 与常驻通知观察。
+ */
+data class RelayState(
+    val role: BleRelayManager.Role = BleRelayManager.Role.NONE,
+    val connected: Boolean = false,
+    val remoteName: String = "",
+    val remoteBattery: Int = -1
+)
 
 /**
  * BLE 双向传输管理。
@@ -37,7 +50,12 @@ import java.util.ArrayDeque
  *  - 中心(GATT client) write CHAR_FROM_CENTRAL  -> 外设(GATT server) 收到
  *  - 外设 notify CHAR_FROM_PERIPHERAL           -> 中心 收到
  *
- * 内置简单分片协议，帧格式（每片 5 字节头 + payload）：
+ * 应用层消息为 JSON，分三类（由 "type" 字段区分）：
+ *  - notif  通知（携带 device/app/title/text/ongoing）
+ *  - hello  连接建立时握手（携带 device + battery）
+ *  - status 心跳（携带 battery）
+ *
+ * 内置分片协议，帧格式（每片 5 字节头 + payload）：
  *   [0]      type = 0x01（数据片）
  *   [1..2]   totalLen 大端 16bit
  *   [3..4]   offset   大端 16bit
@@ -53,6 +71,7 @@ class BleRelayManager private constructor(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: BleRelayManager(context.applicationContext).also { instance = it }
             }
+        private const val HEARTBEAT_MS = 60_000L
     }
 
     enum class Role { NONE, PERIPHERAL, CENTRAL }
@@ -64,6 +83,20 @@ class BleRelayManager private constructor(context: Context) {
 
     @Volatile var role: Role = Role.NONE
     @Volatile var connected: Boolean = false
+    @Volatile var remoteName: String = ""
+    @Volatile var remoteBattery: Int = -1
+
+    // 状态观察者（UI / 常驻通知）
+    private val stateListeners = CopyOnWriteArrayList<(RelayState) -> Unit>()
+
+    // 心跳：周期上报电量
+    private val handler = Handler(Looper.getMainLooper())
+    private val heartbeat = object : Runnable {
+        override fun run() {
+            if (connected) sendStatus()
+            handler.postDelayed(this, HEARTBEAT_MS)
+        }
+    }
 
     // ---- 外设侧 ----
     private var gattServer: BluetoothGattServer? = null
@@ -88,7 +121,26 @@ class BleRelayManager private constructor(context: Context) {
 
     private var notifId = 1000
 
+    init {
+        handler.postDelayed(heartbeat, HEARTBEAT_MS)
+    }
+
     private fun log(msg: String) = EventLog.add(msg)
+
+    // ================= 状态观察 =================
+
+    fun observeState(listener: (RelayState) -> Unit) {
+        stateListeners.add(listener)
+    }
+
+    fun removeState(listener: (RelayState) -> Unit) {
+        stateListeners.remove(listener)
+    }
+
+    private fun notifyState() {
+        val s = RelayState(role, connected, remoteName, remoteBattery)
+        stateListeners.forEach { it(s) }
+    }
 
     // ================= 对外接口 =================
 
@@ -97,6 +149,7 @@ class BleRelayManager private constructor(context: Context) {
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
         role = Role.PERIPHERAL
+        notifyState()
 
         val server = btManager.openGattServer(appContext, gattServerCallback)
         gattServer = server
@@ -125,6 +178,7 @@ class BleRelayManager private constructor(context: Context) {
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
         role = Role.CENTRAL
+        notifyState()
 
         scanner = adapter.bluetoothLeScanner
         val filter = ScanFilter.Builder()
@@ -194,8 +248,29 @@ class BleRelayManager private constructor(context: Context) {
         recvTotalLen = -1
         role = Role.NONE
         connected = false
+        remoteName = ""
+        remoteBattery = -1
         mtu = 23
+        notifyState()
         log("已停止")
+    }
+
+    // ================= 应用层消息 =================
+
+    private fun sendHello() {
+        val name = SettingsRepository.get(appContext).resolvedDeviceName()
+        val obj = JSONObject()
+            .put("type", "hello")
+            .put("device", name)
+            .put("battery", DeviceInfo.batteryPercent(appContext))
+        sendToRemote(obj.toString())
+    }
+
+    private fun sendStatus() {
+        val obj = JSONObject()
+            .put("type", "status")
+            .put("battery", DeviceInfo.batteryPercent(appContext))
+        sendToRemote(obj.toString())
     }
 
     // ================= 服务构建 =================
@@ -252,10 +327,14 @@ class BleRelayManager private constructor(context: Context) {
                 centralDevice = device
                 connected = true
                 mtu = 23
+                notifyState()
                 log("外设：中心已连接 ${device.name ?: device.address}")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 centralDevice = null
                 connected = false
+                remoteName = ""
+                remoteBattery = -1
+                notifyState()
                 log("外设：中心已断开 status=$status")
             }
         }
@@ -297,6 +376,8 @@ class BleRelayManager private constructor(context: Context) {
             if (responseNeeded) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
+            // 此时中心已订阅 notify，可靠地把本机设备名+电量推给对方
+            sendHello()
         }
     }
 
@@ -325,11 +406,15 @@ class BleRelayManager private constructor(context: Context) {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 connected = true
+                notifyState()
                 log("中心：已连接，开始发现服务")
                 // GATT 操作必须串行：这里只做服务发现，不要并发 requestMtu
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false
+                remoteName = ""
+                remoteBattery = -1
+                notifyState()
                 log("中心：连接断开 status=$status")
             }
         }
@@ -337,6 +422,8 @@ class BleRelayManager private constructor(context: Context) {
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             this@BleRelayManager.mtu = mtu
             log("中心：MTU=$mtu")
+            // 订阅完成后的首个安全写入点：把本机设备名+电量推给对方
+            sendHello()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -446,16 +533,35 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun handleReceivedMessage(json: String) {
-        log("收到远程通知")
         try {
             val obj = JSONObject(json)
-            val device = obj.optString("device", "")
-            val app = obj.optString("app", "远程")
-            val title = obj.optString("title", "")
-            val text = obj.optString("text", "")
-            val key = obj.optString("key", "")
-            val ongoing = obj.optBoolean("ongoing", false)
-            postLocalNotification(device, app, title, text, key, ongoing)
+            when (obj.optString("type", "notif")) {
+                "hello" -> {
+                    remoteName = obj.optString("device", "").ifBlank { remoteName }
+                    remoteBattery = obj.optInt("battery", -1)
+                    notifyState()
+                    log("握手：远端 ${remoteName.ifBlank { "未知" }} 电量 $remoteBattery%")
+                }
+                "status" -> {
+                    remoteBattery = obj.optInt("battery", -1)
+                    notifyState()
+                }
+                else -> {
+                    log("收到远程通知")
+                    val device = obj.optString("device", "")
+                    val app = obj.optString("app", "远程")
+                    val title = obj.optString("title", "")
+                    val text = obj.optString("text", "")
+                    val key = obj.optString("key", "")
+                    val ongoing = obj.optBoolean("ongoing", false)
+                    // 若握手丢失，从通知里也能学到远端名
+                    if (device.isNotBlank() && remoteName.isBlank()) {
+                        remoteName = device
+                        notifyState()
+                    }
+                    postLocalNotification(device, app, title, text, key, ongoing)
+                }
+            }
         } catch (e: Exception) {
             log("解析失败：${e.message}")
         }
