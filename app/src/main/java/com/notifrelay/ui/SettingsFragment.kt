@@ -6,14 +6,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
-import com.notifrelay.BleRelayManager
 import com.notifrelay.DeviceInfo
 import com.notifrelay.EventLog
 import com.notifrelay.ForegroundServiceController
 import com.notifrelay.R
 import com.notifrelay.SettingsRepository
 import com.notifrelay.databinding.FragmentSettingsBinding
-import org.json.JSONObject
 
 class SettingsFragment : Fragment() {
 
@@ -68,9 +66,6 @@ class SettingsFragment : Fragment() {
             ).show()
         }
 
-        binding.btnTestNotification.setOnClickListener {
-            sendTestNotification()
-        }
     }
 
     override fun onResume() {
@@ -93,27 +88,4 @@ class SettingsFragment : Fragment() {
         binding.scrollLog.post { binding.scrollLog.fullScroll(View.FOCUS_DOWN) }
     }
 
-    private fun sendTestNotification() {
-        val manager = BleRelayManager.get(requireContext())
-        if (!manager.connected) {
-            Toast.makeText(requireContext(), "请先连接设备", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val now = System.currentTimeMillis()
-        val message = JSONObject().apply {
-            put("type", "notif")
-            put("device", repo.resolvedDeviceName())
-            put("pkg", requireContext().packageName)
-            put("app", getString(R.string.app_name))
-            put("title", "测试通知")
-            put("text", "通知流转连接正常 · $now")
-            put("key", "notif-relay-test-$now")
-            put("time", now)
-            put("ongoing", false)
-        }.toString()
-
-        manager.sendToRemote(message)
-        Toast.makeText(requireContext(), "测试通知已发送", Toast.LENGTH_SHORT).show()
-    }
 }

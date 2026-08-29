@@ -18,10 +18,11 @@ import com.notifrelay.R
 import com.notifrelay.RelayState
 import com.notifrelay.SettingsRepository
 import com.notifrelay.databinding.FragmentDevicesBinding
+import org.json.JSONObject
 
 /**
  * 「设备」页：扫描 & 配对。状态卡展示蓝牙/通知监听/常驻后台状态，
- * 连接后展示远端设备名 / Android 版本 / 电量；下方是已配对 + 附近设备列表。
+ * 连接后展示远端设备名 / Android 版本 / 电量和连接测试。
  */
 class DevicesFragment : Fragment() {
 
@@ -91,6 +92,7 @@ class DevicesFragment : Fragment() {
                 Toast.makeText(requireContext(), "已让远端设备响铃", Toast.LENGTH_SHORT).show()
             }
         }
+        binding.btnTestNotification.setOnClickListener { sendTestNotification() }
     }
 
     override fun onResume() {
@@ -130,6 +132,7 @@ class DevicesFragment : Fragment() {
         // 已连接设备卡
         val connected = manager.visibleConnected()
         binding.cardConnected.visibility = if (connected) View.VISIBLE else View.GONE
+        binding.cardTestNotification.visibility = if (connected) View.VISIBLE else View.GONE
         if (connected) {
             binding.tvRemoteName.text = manager.remoteName.ifBlank { "未知设备" }
             val android = manager.remoteAndroid.ifBlank { "版本未知" }
@@ -139,11 +142,17 @@ class DevicesFragment : Fragment() {
             binding.btnFindDevice.text = if (manager.findingRemote) "取消查找" else "查找设备"
         }
 
-        // 扫描按钮
+        // 已连接后不再展示扫描入口和设备列表，避免与当前连接状态产生歧义。
         val scanning = lastDiscovery.scanning
-        binding.btnScan.isEnabled = !scanning && !connected
-        binding.btnScan.text = if (scanning) "扫描中…" else "扫描设备"
-        binding.tvScanHint.text = if (scanning) "正在搜索附近设备…" else ""
+        val discoveryVisibility = if (connected) View.GONE else View.VISIBLE
+        binding.btnScan.visibility = discoveryVisibility
+        binding.tvScanHint.visibility = discoveryVisibility
+        binding.listDevices.visibility = discoveryVisibility
+        if (!connected) {
+            binding.btnScan.isEnabled = !scanning
+            binding.btnScan.text = if (scanning) "扫描中…" else "扫描设备"
+            binding.tvScanHint.text = if (scanning) "正在搜索附近设备…" else ""
+        }
 
         rebuildList()
     }
@@ -237,6 +246,29 @@ class DevicesFragment : Fragment() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun sendTestNotification() {
+        if (!manager.connected) {
+            Toast.makeText(requireContext(), "请先连接设备", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val message = JSONObject().apply {
+            put("type", "notif")
+            put("device", repo.resolvedDeviceName())
+            put("pkg", requireContext().packageName)
+            put("app", getString(R.string.app_name))
+            put("title", "测试通知")
+            put("text", "通知流转连接正常 · $now")
+            put("key", "notif-relay-test-$now")
+            put("time", now)
+            put("ongoing", false)
+        }.toString()
+
+        manager.sendToRemote(message)
+        Toast.makeText(requireContext(), "测试通知已发送", Toast.LENGTH_SHORT).show()
     }
 
     private fun isBluetoothEnabled(): Boolean {
