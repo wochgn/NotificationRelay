@@ -129,6 +129,7 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile var remoteDeviceId: String = ""
     @Volatile var pairingRequired: Boolean = false
     @Volatile var paired: Boolean = false
+    @Volatile var findingRemote: Boolean = false
     @Volatile private var userDisconnectEvent = false
     @Volatile private var disconnecting = false
     private var localPairAccepted = false
@@ -382,9 +383,20 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun findRemoteDevice(): Boolean {
-        if (!visibleConnected() || !paired) return false
+        if (!visibleConnected() || !paired || findingRemote) return false
         sendToRemote(JSONObject().put("type", "find_device").toString())
+        findingRemote = true
+        notifyState()
         log("已向远端发送查找设备请求")
+        return true
+    }
+
+    fun cancelFindRemote(): Boolean {
+        if (!visibleConnected() || !findingRemote) return false
+        sendToRemote(JSONObject().put("type", "find_stop").toString())
+        findingRemote = false
+        notifyState()
+        log("已取消查找设备")
         return true
     }
 
@@ -568,6 +580,7 @@ class BleRelayManager private constructor(context: Context) {
         paired = false
         localPairAccepted = false
         remotePairAccepted = false
+        findingRemote = false
         disconnecting = false
         mtu = 23
     }
@@ -1011,6 +1024,14 @@ class BleRelayManager private constructor(context: Context) {
                 "find_device" -> {
                     if (!paired) return
                     FindDeviceController.start(appContext, remoteName)
+                }
+                "find_stop" -> {
+                    FindDeviceController.stop()
+                }
+                "find_stopped" -> {
+                    findingRemote = false
+                    notifyState()
+                    log("远端已停止响铃")
                 }
                 else -> {
                     if (!paired) {

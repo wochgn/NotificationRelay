@@ -38,7 +38,7 @@ class RelayForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_FIND_REMOTE) {
-            manager.findRemoteDevice()
+            if (manager.findingRemote) manager.cancelFindRemote() else manager.findRemoteDevice()
         }
         startForeground(
             Constants.NOTIF_ID_FOREGROUND,
@@ -96,7 +96,11 @@ class RelayForegroundService : Service() {
                 findIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(R.drawable.ic_notification, "查找设备", findPendingIntent)
+            builder.addAction(
+                R.drawable.ic_notification,
+                if (manager.findingRemote) "取消查找" else "查找设备",
+                findPendingIntent
+            )
         }
         return builder.build()
     }

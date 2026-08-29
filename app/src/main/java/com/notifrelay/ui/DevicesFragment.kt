@@ -85,7 +85,9 @@ class DevicesFragment : Fragment() {
             manager.remoteDeviceId.takeIf { it.isNotBlank() }?.let(::confirmDelete)
         }
         binding.btnFindDevice.setOnClickListener {
-            if (manager.findRemoteDevice()) {
+            if (manager.findingRemote) {
+                manager.cancelFindRemote()
+            } else if (manager.findRemoteDevice()) {
                 Toast.makeText(requireContext(), "已让远端设备响铃", Toast.LENGTH_SHORT).show()
             }
         }
@@ -134,6 +136,7 @@ class DevicesFragment : Fragment() {
             val battery = if (manager.remoteBattery >= 0) "电量 ${manager.remoteBattery}%" else "电量未知"
             val state = if (manager.pairingRequired) "等待配对确认" else "$android · $battery"
             binding.tvRemoteMeta.text = state
+            binding.btnFindDevice.text = if (manager.findingRemote) "取消查找" else "查找设备"
         }
 
         // 扫描按钮

@@ -19,7 +19,7 @@ object FindDeviceController {
 
     private val handler = Handler(Looper.getMainLooper())
     private var ringtone: Ringtone? = null
-    private val autoStop = Runnable { stopInternal() }
+    private val autoStop = Runnable { stopAndNotify() }
     private var appContext: Context? = null
 
     fun start(context: Context, remoteName: String) {
@@ -42,6 +42,17 @@ object FindDeviceController {
 
     fun stop() {
         stopInternal()
+        EventLog.add("查找设备响铃已停止")
+    }
+
+    fun stopAndNotify() {
+        val context = appContext
+        stopInternal()
+        if (context != null) {
+            BleRelayManager.get(context).sendToRemote(
+                "{\"type\":\"find_stopped\"}"
+            )
+        }
         EventLog.add("查找设备响铃已停止")
     }
 
@@ -91,7 +102,7 @@ object FindDeviceController {
 class FindDeviceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == FindDeviceController.ACTION_STOP) {
-            FindDeviceController.stop()
+            FindDeviceController.stopAndNotify()
         }
     }
 }
