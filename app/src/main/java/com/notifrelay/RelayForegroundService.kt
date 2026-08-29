@@ -49,7 +49,7 @@ class RelayForegroundService : Service() {
     }
 
     private fun currentState(): RelayState =
-        RelayState(manager.role, manager.connected, manager.remoteName, manager.remoteBattery, manager.remoteAndroid)
+        RelayState(manager.role, manager.visibleConnected(), manager.remoteName, manager.remoteBattery, manager.remoteAndroid)
 
     private fun buildNotification(state: RelayState): Notification {
         val nm = getSystemService(NotificationManager::class.java)

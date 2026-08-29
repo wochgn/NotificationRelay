@@ -87,6 +87,7 @@ class BleRelayManager private constructor(context: Context) {
         private const val HEARTBEAT_MS = 60_000L
         // 外设 notify 无确认，靠发送间隔做流控，避免连发导致丢片
         private const val PERIPHERAL_NOTIFY_DELAY_MS = 25L
+        private const val DISCONNECT_TIMEOUT_MS = 750L
         // 单次扫描时长，超时自动停扫（不停广播）
         private const val SCAN_TIMEOUT_MS = 15_000L
     }
@@ -106,6 +107,8 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile var remoteDeviceId: String = ""
     @Volatile var pairingRequired: Boolean = false
     @Volatile var paired: Boolean = false
+    @Volatile private var userDisconnectEvent = false
+    @Volatile private var disconnecting = false
     private var localPairAccepted = false
     private var remotePairAccepted = false
 
@@ -142,6 +145,10 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    private val disconnectTimeoutRunnable = Runnable {
+        if (disconnecting) closeConnection()
+    }
+
     // ---- 外设侧 ----
     private var gattServer: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
@@ -163,10 +170,12 @@ class BleRelayManager private constructor(context: Context) {
     // 中心发送队列（串行写，onCharacteristicWrite 驱动下一片）
     private val sendQueue = ArrayDeque<ByteArray>()
     private var writing = false
+    private var disconnectAfterCentralWrite = false
 
     // 外设发送队列：notify 无确认，按固定间隔逐片发送（流控），避免连发丢片
     private val peripheralQueue = ArrayDeque<ByteArray>()
     private var peripheralSending = false
+    private var disconnectAfterPeripheralSend = false
     private val peripheralLock = Any()
 
     private var notifId = 1000
@@ -188,11 +197,19 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun notifyState() {
-        val s = RelayState(role, connected, remoteName, remoteBattery, remoteAndroid, pairingRequired, paired)
+        val s = RelayState(role, visibleConnected(), remoteName, remoteBattery, remoteAndroid, pairingRequired, paired)
         stateListeners.forEach { it(s) }
     }
 
     fun needsLocalPairConfirmation(): Boolean = pairingRequired && !localPairAccepted
+
+    fun visibleConnected(): Boolean = connected && !disconnecting
+
+    fun consumeUserDisconnectEvent(): Boolean {
+        val occurred = userDisconnectEvent
+        userDisconnectEvent = false
+        return occurred
+    }
 
     fun observeDiscovery(listener: (DiscoveryState) -> Unit) {
         discoveryListeners.add(listener)
@@ -296,12 +313,48 @@ class BleRelayManager private constructor(context: Context) {
 
     fun rejectPairing() {
         if (!connected || !pairingRequired) return
-        sendToRemote(infoJson().put("type", "pair_reject").toString())
         log("本机已拒绝配对")
-        disconnect()
+        sendControlAndDisconnect("pair_reject")
     }
 
     fun disconnect() {
+        if (connected) {
+            log("正在同步断开连接")
+            sendControlAndDisconnect("disconnect")
+            return
+        }
+        closeConnection()
+    }
+
+    private fun sendControlAndDisconnect(type: String) {
+        userDisconnectEvent = true
+        disconnecting = true
+        notifyState()
+        handler.removeCallbacks(disconnectTimeoutRunnable)
+        handler.postDelayed(disconnectTimeoutRunnable, DISCONNECT_TIMEOUT_MS)
+        // 控制消息保持最小，默认 MTU 下只需两片，发送完成后再关闭物理链路。
+        val chunks = chunk(JSONObject().put("type", type).toString().toByteArray(Charsets.UTF_8))
+        when (role) {
+            Role.CENTRAL -> {
+                sendQueue.clear()
+                sendQueue.addAll(chunks)
+                disconnectAfterCentralWrite = true
+                if (!writing) writeNext()
+            }
+            Role.PERIPHERAL -> synchronized(peripheralLock) {
+                peripheralQueue.clear()
+                peripheralQueue.addAll(chunks)
+                disconnectAfterPeripheralSend = true
+                if (!peripheralSending) {
+                    peripheralSending = true
+                    handler.post(peripheralSendRunnable)
+                }
+            }
+            Role.NONE, Role.AUTO -> closeConnection()
+        }
+    }
+
+    private fun closeConnection() {
         clearConnectionState()
         notifyState()
         stopAll()
@@ -323,6 +376,7 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun sendToRemote(json: String) {
+        if (disconnecting) return
         val chunks = chunk(json.toByteArray(Charsets.UTF_8))
         when (role) {
             Role.CENTRAL -> {
@@ -375,12 +429,21 @@ class BleRelayManager private constructor(context: Context) {
             return
         }
         var chunk: ByteArray? = null
+        var shouldDisconnect = false
         synchronized(peripheralLock) {
             if (peripheralQueue.isEmpty()) {
                 peripheralSending = false
+                if (disconnectAfterPeripheralSend) {
+                    disconnectAfterPeripheralSend = false
+                    shouldDisconnect = true
+                }
             } else {
                 chunk = peripheralQueue.removeFirst()
             }
+        }
+        if (shouldDisconnect) {
+            closeConnection()
+            return
         }
         val data = chunk ?: return
         char.value = data
@@ -414,10 +477,13 @@ class BleRelayManager private constructor(context: Context) {
         charToCentral = null
         sendQueue.clear()
         writing = false
+        disconnectAfterCentralWrite = false
         handler.removeCallbacks(peripheralSendRunnable)
+        handler.removeCallbacks(disconnectTimeoutRunnable)
         synchronized(peripheralLock) {
             peripheralQueue.clear()
             peripheralSending = false
+            disconnectAfterPeripheralSend = false
         }
         recvBuffer.reset()
         recvTotalLen = -1
@@ -439,6 +505,7 @@ class BleRelayManager private constructor(context: Context) {
         paired = false
         localPairAccepted = false
         remotePairAccepted = false
+        disconnecting = false
         mtu = 23
     }
 
@@ -529,6 +596,7 @@ class BleRelayManager private constructor(context: Context) {
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                if (gattServer == null) return
                 // 防御：我方已是中心时，忽略本机 server 对同一物理链路报上来的连接事件，
                 // 避免把 role 从 CENTRAL 顶回 PERIPHERAL，导致中心走错发送路径。
                 if (role == Role.CENTRAL) {
@@ -721,7 +789,14 @@ class BleRelayManager private constructor(context: Context) {
         if (gatt == null || char == null || !connected) {
             sendQueue.clear(); writing = false; return
         }
-        if (sendQueue.isEmpty()) { writing = false; return }
+        if (sendQueue.isEmpty()) {
+            writing = false
+            if (disconnectAfterCentralWrite) {
+                disconnectAfterCentralWrite = false
+                closeConnection()
+            }
+            return
+        }
         writing = true
         val chunk = sendQueue.removeFirst()
         char.value = chunk
@@ -831,7 +906,12 @@ class BleRelayManager private constructor(context: Context) {
                 }
                 "pair_reject" -> {
                     log("对方已拒绝配对")
-                    disconnect()
+                    closeConnection()
+                }
+                "disconnect" -> {
+                    log("对方请求断开连接")
+                    userDisconnectEvent = true
+                    closeConnection()
                 }
                 else -> {
                     if (!paired) {

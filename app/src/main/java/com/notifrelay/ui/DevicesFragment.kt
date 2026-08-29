@@ -36,12 +36,13 @@ class DevicesFragment : Fragment() {
     private var wasConnected = false
     private var manualDisconnect = false
 
-    private val stateListener: (RelayState) -> Unit = { _ ->
+    private val stateListener: (RelayState) -> Unit = { state ->
         activity?.runOnUiThread {
-            val nowConnected = manager.connected
+            val nowConnected = state.connected
             val justDisconnected = wasConnected && !nowConnected
+            val userDisconnect = manager.consumeUserDisconnectEvent()
             wasConnected = nowConnected
-            if (justDisconnected && !manualDisconnect) manager.startDiscovery()
+            if (justDisconnected && !manualDisconnect && !userDisconnect) manager.startDiscovery()
             manualDisconnect = false
             refresh()
         }
@@ -72,10 +73,10 @@ class DevicesFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        wasConnected = manager.connected
+        wasConnected = manager.visibleConnected()
         manager.observeState(stateListener)
         manager.observeDiscovery(discoveryListener)
-        if (!manager.connected) manager.startDiscovery()
+        if (!manager.visibleConnected()) manager.startDiscovery()
         refresh()
     }
 
@@ -98,7 +99,7 @@ class DevicesFragment : Fragment() {
         binding.tvServiceStatus.text = if (repo.foregroundEnabled) "已开启" else "未开启"
 
         // 已连接设备卡
-        val connected = manager.connected
+        val connected = manager.visibleConnected()
         binding.cardConnected.visibility = if (connected) View.VISIBLE else View.GONE
         if (connected) {
             binding.tvRemoteName.text = manager.remoteName.ifBlank { "未知设备" }
@@ -185,7 +186,7 @@ class DevicesFragment : Fragment() {
     }
 
     private fun requestConnection(row: DeviceRow) {
-        if (manager.connected) return
+        if (manager.visibleConnected()) return
         manager.connectTo(row.address)
     }
 
