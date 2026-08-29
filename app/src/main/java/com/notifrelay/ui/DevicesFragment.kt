@@ -226,8 +226,13 @@ class DevicesFragment : Fragment() {
 
     private fun requestConnection(row: DeviceRow) {
         if (manager.visibleConnected()) return
-        if (row.address.isNotBlank()) manager.connectTo(row.address)
-        else if (row.deletable) manager.connectToSaved(row.deviceId)
+        if (row.address.isNotBlank()) {
+            Toast.makeText(requireContext(), "正在连接「${row.name}」…", Toast.LENGTH_SHORT).show()
+            manager.connectTo(row.address)
+        } else if (row.deletable) {
+            Toast.makeText(requireContext(), "正在查找「${row.name}」，找到后自动连接…", Toast.LENGTH_SHORT).show()
+            manager.connectToSaved(row.deviceId)
+        }
     }
 
     private fun confirmDelete(deviceId: String) {
