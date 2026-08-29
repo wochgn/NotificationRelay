@@ -42,9 +42,9 @@ class MainActivity : AppCompatActivity() {
 
         binding.bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
-                R.id.nav_devices -> switchTo(DevicesFragment())
-                R.id.nav_apps -> switchTo(AppsFragment())
-                R.id.nav_settings -> switchTo(SettingsFragment())
+                R.id.nav_devices -> switchTo("设备", DevicesFragment())
+                R.id.nav_apps -> switchTo("应用", AppsFragment())
+                R.id.nav_settings -> switchTo("设置", SettingsFragment())
                 else -> return@setOnItemSelectedListener false
             }
             true
@@ -87,7 +87,8 @@ class MainActivity : AppCompatActivity() {
             .also { it.show() }
     }
 
-    private fun switchTo(fragment: Fragment) {
+    private fun switchTo(title: String, fragment: Fragment) {
+        binding.topAppBar.title = title
         supportFragmentManager.beginTransaction()
             .replace(R.id.fragment_container, fragment)
             .commit()

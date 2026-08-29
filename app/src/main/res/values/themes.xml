@@ -1,3 +1,9 @@
 <resources>
-    <style name="Theme.NotifRelay" parent="Theme.Material3.DayNight.NoActionBar" />
+    <style name="Theme.NotifRelay" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">?attr/isLightTheme</item>
+        <item name="android:navigationBarColor">?attr/colorSurfaceContainer</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Material3.MaterialAlertDialog.Centered</item>
+    </style>
 </resources>

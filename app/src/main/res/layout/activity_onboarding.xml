@@ -3,6 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
     android:orientation="vertical">
 
     <ScrollView
@@ -18,13 +19,15 @@
             android:padding="24dp">
 
             <ImageView
-                android:layout_width="72dp"
-                android:layout_height="72dp"
+                android:layout_width="88dp"
+                android:layout_height="88dp"
                 android:layout_gravity="center_horizontal"
                 android:layout_marginTop="16dp"
+                android:background="@drawable/bg_icon_container"
                 android:contentDescription="@null"
+                android:padding="24dp"
                 android:src="@drawable/ic_bluetooth"
-                android:tint="?attr/colorOnSurface" />
+                android:tint="?attr/colorOnSecondaryContainer" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -32,7 +35,7 @@
                 android:layout_marginTop="16dp"
                 android:gravity="center"
                 android:text="@string/app_name"
-                android:textSize="24sp"
+                android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
                 android:textStyle="bold" />
 
             <TextView
@@ -41,13 +44,15 @@
                 android:layout_marginTop="8dp"
                 android:gravity="center"
                 android:text="在两台手机间通过蓝牙流转通知，开始前请完成以下授权"
+                android:textColor="?attr/colorOnSurfaceVariant"
                 android:textSize="14sp" />
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                app:cardCornerRadius="16dp"
+                app:cardBackgroundColor="?attr/colorSurfaceContainer"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="0dp">
 
                 <LinearLayout
@@ -55,7 +60,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="16dp">
+                    android:padding="20dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -92,7 +97,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                app:cardCornerRadius="16dp"
+                app:cardBackgroundColor="?attr/colorSurfaceContainer"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="0dp">
 
                 <LinearLayout
@@ -100,7 +106,7 @@
                     android:layout_height="wrap_content"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="16dp">
+                    android:padding="20dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -137,19 +143,21 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                app:cardCornerRadius="16dp"
+                app:cardBackgroundColor="?attr/colorSecondaryContainer"
+                app:cardCornerRadius="24dp"
                 app:cardElevation="0dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="20dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="保持后台运行"
+                        android:textColor="?attr/colorOnSecondaryContainer"
                         android:textSize="16sp"
                         android:textStyle="bold" />
 
@@ -158,6 +166,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:text="建议在系统设置中允许本应用后台运行 / 自启动，并在电池优化里设为「不限制」，否则切到后台后可能被系统清理、导致通知无法流转。"
+                        android:textColor="?attr/colorOnSecondaryContainer"
                         android:textSize="13sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -168,13 +177,15 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
+            android:orientation="vertical"
+            android:background="?attr/colorSurface"
+            android:padding="24dp">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_done"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            app:cornerRadius="20dp"
             android:text="开始使用" />
     </LinearLayout>
 
