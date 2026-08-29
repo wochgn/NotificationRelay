@@ -52,6 +52,7 @@ class OnboardingActivity : AppCompatActivity() {
             permLauncher.launch(requiredPermissions)
         }
         binding.btnDone.setOnClickListener {
+            if (!isListenerEnabled() || !hasAllPermissions()) return@setOnClickListener
             SettingsRepository.get(this).onboarded = true
             goToMain()
         }
@@ -69,8 +70,11 @@ class OnboardingActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        binding.tvListenerStatus.text = if (isListenerEnabled()) "已开启" else "未开启"
-        binding.tvPermissionStatus.text = if (hasAllPermissions()) "已授予" else "未授予"
+        val listenerEnabled = isListenerEnabled()
+        val permissionsGranted = hasAllPermissions()
+        binding.tvListenerStatus.text = if (listenerEnabled) "已开启" else "未开启"
+        binding.tvPermissionStatus.text = if (permissionsGranted) "已授予" else "未授予"
+        binding.btnDone.isEnabled = listenerEnabled && permissionsGranted
     }
 
     private fun isListenerEnabled(): Boolean =

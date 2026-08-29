@@ -1,6 +1,7 @@
 package com.notifrelay
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
@@ -24,10 +25,12 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
@@ -205,6 +208,10 @@ class BleRelayManager private constructor(context: Context) {
     fun startDiscovery() {
         if (connected) return
         stopAll()
+        if (!hasBlePermissions()) {
+            log("蓝牙权限未授予，无法发现设备")
+            return
+        }
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
         role = Role.AUTO
@@ -242,6 +249,14 @@ class BleRelayManager private constructor(context: Context) {
 
         startScanning()
         log("发现模式：广播 + 扫描，等待点按连接…")
+    }
+
+    private fun hasBlePermissions(): Boolean = listOf(
+        Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.BLUETOOTH_CONNECT,
+        Manifest.permission.BLUETOOTH_ADVERTISE
+    ).all {
+        ContextCompat.checkSelfPermission(appContext, it) == PackageManager.PERMISSION_GRANTED
     }
 
     /** 只停广播与扫描，不影响已建立的连接。 */
