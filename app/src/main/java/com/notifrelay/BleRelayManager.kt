@@ -237,6 +237,8 @@ class BleRelayManager private constructor(context: Context) {
 
     fun isAutoReconnectPaused(): Boolean = autoReconnectPaused
 
+    fun isDiscoveryScanning(): Boolean = scanning
+
     fun consumeUserDisconnectEvent(): Boolean {
         val occurred = userDisconnectEvent
         userDisconnectEvent = false

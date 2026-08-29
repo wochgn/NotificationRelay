@@ -26,14 +26,31 @@ class RelayForegroundService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val manager get() = BleRelayManager.get(this)
+    private val reconnectRunnable = Runnable {
+        if (SettingsRepository.get(this).foregroundEnabled &&
+            SettingsRepository.get(this).savedDevices().isNotEmpty() &&
+            !manager.visibleConnected() &&
+            !manager.isAutoReconnectPaused() &&
+            (manager.role == BleRelayManager.Role.NONE ||
+                (manager.role == BleRelayManager.Role.AUTO && !manager.isDiscoveryScanning()))
+        ) {
+            // 扫描有单次超时，定期重启以覆盖远端稍后才进入可发现状态的情况。
+            manager.startDiscovery()
+        }
+        if (SettingsRepository.get(this).foregroundEnabled) scheduleReconnect()
+    }
 
     private val stateListener: (RelayState) -> Unit = { state ->
-        handler.post { updateNotification(state) }
+        handler.post {
+            updateNotification(state)
+            scheduleReconnect()
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
         manager.observeState(stateListener)
+        scheduleReconnect()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -46,14 +63,21 @@ class RelayForegroundService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         )
         updateNotification(currentState())
+        scheduleReconnect()
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        handler.removeCallbacks(reconnectRunnable)
         manager.removeState(stateListener)
         super.onDestroy()
+    }
+
+    private fun scheduleReconnect() {
+        handler.removeCallbacks(reconnectRunnable)
+        handler.postDelayed(reconnectRunnable, 500L)
     }
 
     private fun currentState(): RelayState =

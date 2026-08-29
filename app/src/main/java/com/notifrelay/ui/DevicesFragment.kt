@@ -110,7 +110,8 @@ class DevicesFragment : Fragment() {
         super.onPause()
         manager.removeState(stateListener)
         manager.removeDiscovery(discoveryListener)
-        manager.stopDiscovery()
+        // 常驻后台开启时由前台服务继续扫描并负责已配对设备自动回连。
+        if (!repo.foregroundEnabled) manager.stopDiscovery()
     }
 
     override fun onDestroyView() {
