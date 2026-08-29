@@ -35,6 +35,7 @@ class OnboardingActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DynamicColors.applyToActivityIfAvailable(this)
+        SystemBars.apply(this)
 
         // 已完成引导：直接进主界面
         if (SettingsRepository.get(this).onboarded) {

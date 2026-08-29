@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         // Material 3 动态取色（Android 12+ 跟随壁纸换色，ColorOS/HyperOS 均支持）
         DynamicColors.applyToActivityIfAvailable(this)
+        SystemBars.apply(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
