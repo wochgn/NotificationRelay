@@ -3,6 +3,7 @@ package com.notifrelay
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -19,6 +20,10 @@ import androidx.core.content.ContextCompat
  */
 class RelayForegroundService : Service() {
 
+    companion object {
+        const val ACTION_FIND_REMOTE = "com.notifrelay.action.FIND_REMOTE"
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private val manager get() = BleRelayManager.get(this)
 
@@ -32,6 +37,9 @@ class RelayForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_FIND_REMOTE) {
+            manager.findRemoteDevice()
+        }
         startForeground(
             Constants.NOTIF_ID_FOREGROUND,
             buildNotification(currentState()),
@@ -73,13 +81,24 @@ class RelayForegroundService : Service() {
             "未连接"
         }
 
-        return NotificationCompat.Builder(this, Constants.CHANNEL_ID_FOREGROUND)
+        val builder = NotificationCompat.Builder(this, Constants.CHANNEL_ID_FOREGROUND)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("通知流转")
             .setContentText(text)
             .setOngoing(true)
             .setSilent(true)
-            .build()
+        if (state.connected) {
+            val findIntent = Intent(this, RelayForegroundService::class.java)
+                .setAction(ACTION_FIND_REMOTE)
+            val findPendingIntent = PendingIntent.getService(
+                this,
+                0,
+                findIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(R.drawable.ic_notification, "查找设备", findPendingIntent)
+        }
+        return builder.build()
     }
 
     private fun updateNotification(state: RelayState) {

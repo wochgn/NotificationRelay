@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.Fragment
@@ -82,6 +83,11 @@ class DevicesFragment : Fragment() {
         }
         binding.btnUnpair.setOnClickListener {
             manager.remoteDeviceId.takeIf { it.isNotBlank() }?.let(::confirmDelete)
+        }
+        binding.btnFindDevice.setOnClickListener {
+            if (manager.findRemoteDevice()) {
+                Toast.makeText(requireContext(), "已让远端设备响铃", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

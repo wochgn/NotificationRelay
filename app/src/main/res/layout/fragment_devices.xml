@@ -152,6 +152,14 @@
                 android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_find_device"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="查找设备"
+                    android:textColor="?attr/colorOnPrimaryContainer" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_unpair"
                     style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"

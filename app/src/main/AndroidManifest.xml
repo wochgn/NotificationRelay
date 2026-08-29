@@ -54,6 +54,10 @@
             android:name=".MainActivity"
             android:exported="false" />
 
+        <receiver
+            android:name=".FindDeviceReceiver"
+            android:exported="false" />
+
         <!-- 通知读取服务：系统绑定，exported 必须为 true（Android 12+） -->
         <service
             android:name=".RelayListenerService"

@@ -355,6 +355,13 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    fun findRemoteDevice(): Boolean {
+        if (!visibleConnected() || !paired) return false
+        sendToRemote(JSONObject().put("type", "find_device").toString())
+        log("已向远端发送查找设备请求")
+        return true
+    }
+
     private fun sendControlAndDisconnect(type: String) {
         userDisconnectEvent = true
         disconnecting = true
@@ -963,6 +970,19 @@ class BleRelayManager private constructor(context: Context) {
                     autoReconnectPaused = true
                     userDisconnectEvent = true
                     closeConnection()
+                }
+                "notif_remove" -> {
+                    if (!paired) return
+                    val key = obj.optString("key", "")
+                    if (key.isNotBlank()) {
+                        appContext.getSystemService(NotificationManager::class.java)
+                            .cancel(key.hashCode())
+                        log("已清除远程通知")
+                    }
+                }
+                "find_device" -> {
+                    if (!paired) return
+                    FindDeviceController.start(appContext, remoteName)
                 }
                 else -> {
                     if (!paired) {

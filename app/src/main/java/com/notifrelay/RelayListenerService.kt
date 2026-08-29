@@ -3,6 +3,7 @@ package com.notifrelay
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import org.json.JSONObject
 
 /**
  * 通知读取服务。用户需在「设置 → 特殊应用权限 → 通知使用权」里开启本 App。
@@ -42,6 +43,24 @@ class RelayListenerService : NotificationListenerService() {
         val deviceName = SettingsRepository.get(this).resolvedDeviceName()
         val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
         EventLog.add("本机通知 [$sbn.packageName]")
+        BleRelayManager.get(this).sendToRemote(json)
+    }
+
+    override fun onNotificationRemoved(
+        sbn: StatusBarNotification,
+        rankingMap: RankingMap,
+        reason: Int
+    ) {
+        if (sbn.packageName == packageName) return
+        if ((sbn.notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return
+        if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
+        if (sbn.key.isBlank()) return
+
+        val json = JSONObject()
+            .put("type", "notif_remove")
+            .put("key", sbn.key)
+            .toString()
+        EventLog.add("本机通知已清除 [${sbn.packageName}]")
         BleRelayManager.get(this).sendToRemote(json)
     }
 }
