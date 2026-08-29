@@ -1286,7 +1286,7 @@ class BleRelayManager private constructor(context: Context) {
         // 标题格式：<远端设备名> | <应用名> | <通知标题>（空段自动省略）
         val titleLine = listOf(device, app, title).filter { it.isNotBlank() }.joinToString(" | ")
 
-        val liveNotification = buildOtpLiveNotification(app, titleLine, otpCode)
+        val liveNotification = buildOtpLiveNotification(app, title, text, otpCode)
         val n = liveNotification
             ?: NotificationCompat.Builder(appContext, channelId)
                 .setSmallIcon(R.drawable.ic_notification)
@@ -1300,7 +1300,12 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     /** Android 16+ 使用 ProgressStyle；API 不可用时由调用方回退到普通通知。 */
-    private fun buildOtpLiveNotification(app: String, titleLine: String, otpCode: String?): Notification? {
+    private fun buildOtpLiveNotification(
+        app: String,
+        title: String,
+        text: String,
+        otpCode: String?
+    ): Notification? {
         if (!SettingsRepository.get(appContext).otpLiveEnabled ||
             otpCode.isNullOrBlank() ||
             android.os.Build.VERSION.SDK_INT < 36
@@ -1321,8 +1326,8 @@ class BleRelayManager private constructor(context: Context) {
             val builder = Notification.Builder(appContext, Constants.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_sms)
                 .setContentTitle(otpCode)
-                .setContentText(otpCode)
-                .setSubText(titleLine)
+                .setContentText(text)
+                .setSubText(listOf(app, title).filter { it.isNotBlank() }.joinToString(" · "))
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setOngoing(true)
                 .setTimeoutAfter(5 * 60 * 1000L)
