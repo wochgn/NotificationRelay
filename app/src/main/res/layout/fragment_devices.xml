@@ -153,10 +153,10 @@
 
                  <com.google.android.material.button.MaterialButton
                      android:id="@+id/btn_find_device"
-                     style="@style/Widget.Material3.Button.TextButton"
-                     android:layout_width="match_parent"
-                     android:layout_height="wrap_content"
-                     android:gravity="start|center_vertical"
+                      style="@style/Widget.Material3.Button.OutlinedButton"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center"
                      android:minHeight="48dp"
                      android:text="查找设备"
                      android:textColor="?attr/colorOnPrimaryContainer"
@@ -165,10 +165,10 @@
 
                  <com.google.android.material.button.MaterialButton
                      android:id="@+id/btn_unpair"
-                     style="@style/Widget.Material3.Button.TextButton"
-                     android:layout_width="match_parent"
-                     android:layout_height="wrap_content"
-                     android:gravity="start|center_vertical"
+                      style="@style/Widget.Material3.Button.OutlinedButton"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center"
                      android:minHeight="48dp"
                      android:text="取消配对"
                      android:textColor="?attr/colorOnPrimaryContainer"
@@ -177,10 +177,10 @@
 
                  <com.google.android.material.button.MaterialButton
                      android:id="@+id/btn_disconnect"
-                     style="@style/Widget.Material3.Button.TextButton"
-                     android:layout_width="match_parent"
-                     android:layout_height="wrap_content"
-                     android:gravity="start|center_vertical"
+                      style="@style/Widget.Material3.Button.OutlinedButton"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:gravity="center"
                      android:minHeight="48dp"
                      android:text="断开连接"
                      android:textColor="?attr/colorOnPrimaryContainer"
