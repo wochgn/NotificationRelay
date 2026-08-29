@@ -121,6 +121,7 @@ class BleRelayManager private constructor(context: Context) {
     private val discoveredDevices = LinkedHashMap<String, ScanDevice>()
     private var pendingConnectDeviceId: String? = null
     private var autoConnectSaved = true
+    @Volatile private var autoReconnectPaused = false
 
     // 心跳：周期上报电量
     private val handler = Handler(Looper.getMainLooper())
@@ -207,6 +208,8 @@ class BleRelayManager private constructor(context: Context) {
 
     fun visibleConnected(): Boolean = connected && !disconnecting
 
+    fun isAutoReconnectPaused(): Boolean = autoReconnectPaused
+
     fun consumeUserDisconnectEvent(): Boolean {
         val occurred = userDisconnectEvent
         userDisconnectEvent = false
@@ -235,7 +238,7 @@ class BleRelayManager private constructor(context: Context) {
     fun startDiscovery(autoConnectSaved: Boolean = true) {
         if (connected) return
         stopAll()
-        this.autoConnectSaved = autoConnectSaved
+        this.autoConnectSaved = autoConnectSaved && !autoReconnectPaused
         if (!hasBlePermissions()) {
             log("蓝牙权限未授予，无法发现设备")
             return
@@ -298,6 +301,7 @@ class BleRelayManager private constructor(context: Context) {
     fun connectTo(address: String) {
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (address.isBlank()) return
+        autoReconnectPaused = false
         stopDiscovery()
         closeGattServer() // 我方作中心：关闭本机 GATT server，避免其回调把 role 顶回外设
         val device = adapter.getRemoteDevice(address)
@@ -306,6 +310,7 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun connectToSaved(deviceId: String) {
+        autoReconnectPaused = false
         val discovered = discoveredDevices.values.firstOrNull { it.deviceId == deviceId }
         if (discovered != null) {
             connectTo(discovered.address)
@@ -334,10 +339,20 @@ class BleRelayManager private constructor(context: Context) {
     fun disconnect() {
         if (connected) {
             log("正在同步断开连接")
+            autoReconnectPaused = true
             sendControlAndDisconnect("disconnect")
             return
         }
         closeConnection()
+    }
+
+    fun unpair(deviceId: String) {
+        SettingsRepository.get(appContext).removeDevice(deviceId)
+        if (connected && remoteDeviceId == deviceId) {
+            log("正在同步取消配对")
+            autoReconnectPaused = true
+            sendControlAndDisconnect("unpair")
+        }
     }
 
     private fun sendControlAndDisconnect(type: String) {
@@ -935,6 +950,17 @@ class BleRelayManager private constructor(context: Context) {
                 }
                 "disconnect" -> {
                     log("对方请求断开连接")
+                    autoReconnectPaused = true
+                    userDisconnectEvent = true
+                    closeConnection()
+                }
+                "unpair" -> {
+                    val deviceId = remoteDeviceId
+                    if (deviceId.isNotBlank()) {
+                        SettingsRepository.get(appContext).removeDevice(deviceId)
+                    }
+                    log("对方已取消配对")
+                    autoReconnectPaused = true
                     userDisconnectEvent = true
                     closeConnection()
                 }

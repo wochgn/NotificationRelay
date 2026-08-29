@@ -72,11 +72,16 @@ class DevicesFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        binding.btnScan.setOnClickListener { manager.startDiscovery() }
+        binding.btnScan.setOnClickListener {
+            manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused())
+        }
         binding.btnDisconnect.setOnClickListener {
             manualDisconnect = true
             manager.disconnect()
             refresh()
+        }
+        binding.btnUnpair.setOnClickListener {
+            manager.remoteDeviceId.takeIf { it.isNotBlank() }?.let(::confirmDelete)
         }
     }
 
@@ -85,7 +90,9 @@ class DevicesFragment : Fragment() {
         wasConnected = manager.visibleConnected()
         manager.observeState(stateListener)
         manager.observeDiscovery(discoveryListener)
-        if (!manager.visibleConnected()) manager.startDiscovery()
+        if (!manager.visibleConnected()) {
+            manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused())
+        }
         refresh()
     }
 
@@ -147,14 +154,15 @@ class DevicesFragment : Fragment() {
             saved.forEach { d ->
                 val scan = discoveredByDeviceId[d.deviceId]
                 val address = scan?.address.orEmpty()
+                val isConnected = d.deviceId == connectedDeviceId
                 rows.add(
                     DeviceRow(
                         d.deviceId,
                         address,
                         d.name.ifBlank { address },
-                        if (scan != null) d.android.ifBlank { address }
+                        if (isConnected || scan != null) d.android.ifBlank { address }
                         else listOf(d.android, "点击自动查找并连接").filter { it.isNotBlank() }.joinToString(" · "),
-                        d.deviceId == connectedDeviceId,
+                        isConnected,
                         deletable = true
                     )
                 )
@@ -205,11 +213,17 @@ class DevicesFragment : Fragment() {
 
     private fun confirmDelete(deviceId: String) {
         val name = repo.findByDeviceId(deviceId)?.name ?: deviceId
+        val connected = manager.visibleConnected() && manager.remoteDeviceId == deviceId
         AlertDialog.Builder(requireContext())
-            .setTitle("删除设备")
-            .setMessage("确定删除已配对设备「$name」吗？")
-            .setPositiveButton("删除") { _, _ ->
-                repo.removeDevice(deviceId)
+            .setTitle(if (connected) "取消配对" else "删除设备")
+            .setMessage(
+                if (connected)
+                    "确定取消与「$name」的配对吗？双方将同步删除配对记录并断开连接。"
+                else
+                    "确定删除已配对设备「$name」吗？"
+            )
+            .setPositiveButton("取消配对") { _, _ ->
+                manager.unpair(deviceId)
                 refresh()
             }
             .setNegativeButton("取消", null)
