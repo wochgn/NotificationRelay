@@ -21,13 +21,23 @@ object NotificationCodec {
         var text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
         if (bigText.isNotBlank()) text = bigText
-        val messageText = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
-            ?.mapNotNull { (it as? android.os.Bundle)?.getCharSequence("text")?.toString() }
-            ?.filter { it.isNotBlank() }
-            ?.joinToString("\n")
-            .orEmpty()
-        if (messageText.isNotBlank()) text = listOf(text, messageText).filter { it.isNotBlank() }.joinToString("\n")
-        val otpCode = OtpDetector.detect(title, text)
+        var otpCode = OtpDetector.detect(title, text)
+        if (otpCode == null && OtpDetector.hasKeyword(title, text)) {
+            val messageText = try {
+                extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+                    ?.mapNotNull { (it as? android.os.Bundle)?.getCharSequence("text")?.toString() }
+                    ?.filter { it.isNotBlank() }
+                    ?.joinToString("\n")
+                    .orEmpty()
+            } catch (_: RuntimeException) {
+                // 第三方通知可能携带无法反序列化的 Parcelable，不能阻断通知转发。
+                ""
+            }
+            if (messageText.isNotBlank()) {
+                text = listOf(text, messageText).filter { it.isNotBlank() }.joinToString("\n")
+                otpCode = OtpDetector.detect(title, text)
+            }
+        }
 
         val appLabel = try {
             val ai = context.packageManager.getApplicationInfo(sbn.packageName, 0)

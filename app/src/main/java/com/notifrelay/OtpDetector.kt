@@ -10,9 +10,12 @@ object OtpDetector {
     )
     private val numberPattern = Regex("(?<!\\d)(\\d(?:[ -]?\\d){3,7})(?!\\d)")
 
+    fun hasKeyword(title: String, text: String): Boolean =
+        keywordPattern.containsMatchIn(listOf(title, text).filter { it.isNotBlank() }.joinToString(" "))
+
     fun detect(title: String, text: String): String? {
         val source = listOf(title, text).filter { it.isNotBlank() }.joinToString(" ")
-        if (!keywordPattern.containsMatchIn(source)) return null
+        if (!hasKeyword(title, text)) return null
 
         val keywords = keywordPattern.findAll(source).toList()
         return numberPattern.findAll(source)

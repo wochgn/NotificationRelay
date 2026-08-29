@@ -1,14 +1,19 @@
 package com.notifrelay
 
 import android.app.Notification
+import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
 /**
  * 通知读取服务。用户需在「设置 → 特殊应用权限 → 通知使用权」里开启本 App。
  */
 class RelayListenerService : NotificationListenerService() {
+
+    // 常驻通知可能频繁触发相同内容的更新，避免重复占用 BLE 发送队列。
+    private val lastPostedHashes = ConcurrentHashMap<String, Int>()
 
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -23,6 +28,8 @@ class RelayListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         EventLog.add("通知监听已断开")
+        // 部分 ROM 在应用更新或进程重启后不会自动恢复绑定，主动请求系统重连。
+        requestRebind(ComponentName(this, RelayListenerService::class.java))
     }
 
     // 必须用带 RankingMap 的两参数版本。单参数版本已废弃，部分系统/ROM 不会回调它。
@@ -42,6 +49,12 @@ class RelayListenerService : NotificationListenerService() {
 
         val deviceName = SettingsRepository.get(this).resolvedDeviceName()
         val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
+        val fingerprint = try {
+            JSONObject(json).apply { remove("time") }.toString().hashCode()
+        } catch (_: Exception) {
+            json.hashCode()
+        }
+        if (lastPostedHashes.put(sbn.key, fingerprint) == fingerprint) return
         EventLog.add("本机通知 [$sbn.packageName]")
         BleRelayManager.get(this).sendToRemote(json)
     }
@@ -56,6 +69,7 @@ class RelayListenerService : NotificationListenerService() {
         if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
         if (sbn.key.isBlank()) return
 
+        lastPostedHashes.remove(sbn.key)
         val json = JSONObject()
             .put("type", "notif_remove")
             .put("key", sbn.key)
