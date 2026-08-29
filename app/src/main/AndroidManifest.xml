@@ -23,6 +23,10 @@
 
     <!-- 发通知（Android 13 / API 33+ 运行时权限） -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 16+ 实时/推广中的通知；不支持时自动回退普通通知 -->
+    <uses-permission
+        android:name="android.permission.POST_PROMOTED_NOTIFICATIONS"
+        tools:targetApi="36" />
 
     <!-- 解析通知来源应用名。Android 11+ 包可见性限制：无此权限 getApplicationLabel 会失败、回退为包名 -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />

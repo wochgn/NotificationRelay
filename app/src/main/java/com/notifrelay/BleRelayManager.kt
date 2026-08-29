@@ -2,6 +2,7 @@ package com.notifrelay
 
 import android.annotation.SuppressLint
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.bluetooth.BluetoothAdapter
@@ -1233,12 +1234,15 @@ class BleRelayManager private constructor(context: Context) {
                     val text = obj.optString("text", "")
                     val key = obj.optString("key", "")
                     val ongoing = obj.optBoolean("ongoing", false)
+                    val otpCode = obj.optString("code", "")
+                        .takeIf { obj.optBoolean("otp", false) && it.isNotBlank() }
+                        ?: OtpDetector.detect(title, text)
                     // 若握手丢失，从通知里也能学到远端名
                     if (device.isNotBlank() && remoteName.isBlank()) {
                         remoteName = device
                         notifyState()
                     }
-                    postLocalNotification(device, app, title, text, key, ongoing)
+                    postLocalNotification(device, app, title, text, key, ongoing, otpCode)
                 }
             }
         } catch (e: Exception) {
@@ -1261,7 +1265,15 @@ class BleRelayManager private constructor(context: Context) {
         log("双方已确认，配对完成")
     }
 
-    private fun postLocalNotification(device: String, app: String, title: String, text: String, key: String, ongoing: Boolean) {
+    private fun postLocalNotification(
+        device: String,
+        app: String,
+        title: String,
+        text: String,
+        key: String,
+        ongoing: Boolean,
+        otpCode: String? = null
+    ) {
         val nm = appContext.getSystemService(NotificationManager::class.java)
         ensureChannels(nm)
 
@@ -1274,20 +1286,65 @@ class BleRelayManager private constructor(context: Context) {
         // 标题格式：<远端设备名> | <应用名> | <通知标题>（空段自动省略）
         val titleLine = listOf(device, app, title).filter { it.isNotBlank() }.joinToString(" | ")
 
-        val n = NotificationCompat.Builder(appContext, channelId)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(titleLine)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setAutoCancel(true)
-            .build()
+        val liveNotification = buildOtpLiveNotification(app, titleLine, otpCode)
+        val n = liveNotification
+            ?: NotificationCompat.Builder(appContext, channelId)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(titleLine)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .build()
         nm.notify(id, n)
-        log("已弹出本地通知：$titleLine（${if (ongoing) "常驻" else "普通"}通道）")
+        log("已弹出本地通知：$titleLine（${if (liveNotification != null) "实时验证码" else if (ongoing) "常驻" else "普通"}通道）")
+    }
+
+    /** Android 16+ 使用 ProgressStyle；API 不可用时由调用方回退到普通通知。 */
+    private fun buildOtpLiveNotification(app: String, titleLine: String, otpCode: String?): Notification? {
+        if (otpCode.isNullOrBlank() || android.os.Build.VERSION.SDK_INT < 36) return null
+        if (appContext.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED ||
+            appContext.checkSelfPermission("android.permission.POST_PROMOTED_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
+        ) return null
+        return try {
+            val progressStyleClass = Class.forName("android.app.Notification\$ProgressStyle")
+            val progressStyle = progressStyleClass.getConstructor().newInstance()
+            progressStyleClass
+                .getMethod("setProgress", Int::class.javaPrimitiveType)
+                .invoke(progressStyle, 100)
+            progressStyleClass.methods
+                .firstOrNull { it.name == "setStyledByProgress" && it.parameterTypes.size == 1 }
+                ?.invoke(progressStyle, true)
+
+            val builder = Notification.Builder(appContext, Constants.CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("验证码 · $app")
+                .setContentText(otpCode)
+                .setSubText(titleLine)
+                .setCategory(Notification.CATEGORY_MESSAGE)
+                .setOngoing(true)
+                .setTimeoutAfter(5 * 60 * 1000L)
+            Notification.Builder::class.java.methods
+                .firstOrNull {
+                    it.name == "setRequestPromotedOngoing" &&
+                        it.parameterTypes.contentEquals(arrayOf(Boolean::class.javaPrimitiveType))
+                }
+                ?.invoke(builder, true)
+            val setStyle = Notification.Builder::class.java.methods.first {
+                it.name == "setStyle" &&
+                    it.parameterTypes.size == 1 &&
+                    it.parameterTypes[0].isAssignableFrom(progressStyleClass)
+            }
+            setStyle.invoke(builder, progressStyle)
+            builder.build()
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun ensureChannels(nm: NotificationManager) {
         nm.createNotificationChannel(
             NotificationChannel(Constants.CHANNEL_ID, "流转的通知", NotificationManager.IMPORTANCE_HIGH)
+                .also { allowChannelPromotion(it) }
         )
         nm.createNotificationChannel(
             NotificationChannel(
@@ -1296,5 +1353,16 @@ class BleRelayManager private constructor(context: Context) {
                 NotificationManager.IMPORTANCE_LOW
             ).apply { description = "后台/常驻类通知（如场景调度、状态栏常驻），默认静默，可在系统设置中单独管理" }
         )
+    }
+
+    private fun allowChannelPromotion(channel: NotificationChannel) {
+        if (android.os.Build.VERSION.SDK_INT < 36) return
+        try {
+            NotificationChannel::class.java
+                .getMethod("setAllowPromoted", Boolean::class.javaPrimitiveType)
+                .invoke(channel, true)
+        } catch (_: Exception) {
+            // 旧系统或不支持该属性时由普通通知路径继续工作。
+        }
     }
 }

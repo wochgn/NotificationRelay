@@ -21,6 +21,13 @@ object NotificationCodec {
         var text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
         if (bigText.isNotBlank()) text = bigText
+        val messageText = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            ?.mapNotNull { (it as? android.os.Bundle)?.getCharSequence("text")?.toString() }
+            ?.filter { it.isNotBlank() }
+            ?.joinToString("\n")
+            .orEmpty()
+        if (messageText.isNotBlank()) text = listOf(text, messageText).filter { it.isNotBlank() }.joinToString("\n")
+        val otpCode = OtpDetector.detect(title, text)
 
         val appLabel = try {
             val ai = context.packageManager.getApplicationInfo(sbn.packageName, 0)
@@ -38,6 +45,8 @@ object NotificationCodec {
             put("text", text.take(MAX_TEXT_LEN))
             put("key", sbn.key)
             put("time", sbn.postTime)
+            put("otp", otpCode != null)
+            if (otpCode != null) put("code", otpCode)
             // 是否常驻/不可清除类通知（如 ONGOING_EVENT|NO_CLEAR|SILENT 的场景调度通知）
             put("ongoing", !sbn.isClearable)
         }.toString()
