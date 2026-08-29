@@ -100,7 +100,12 @@ class DevicesFragment : Fragment() {
         wasConnected = manager.visibleConnected()
         manager.observeState(stateListener)
         manager.observeDiscovery(discoveryListener)
-        if (!manager.visibleConnected()) {
+        // 前台服务可能已经在后台扫描或发起连接，界面恢复时不能重复 startDiscovery，
+        // 否则 startDiscovery() 内部的 stopAll() 会中断正在建立的连接。
+        if (!manager.visibleConnected() &&
+            manager.role == BleRelayManager.Role.NONE &&
+            !manager.isConnecting()
+        ) {
             manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused())
         }
         refresh()
@@ -255,8 +260,12 @@ class DevicesFragment : Fragment() {
     }
 
     private fun sendTestNotification() {
-        if (!manager.connected) {
+        if (!manager.visibleConnected()) {
             Toast.makeText(requireContext(), "请先连接设备", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!manager.paired) {
+            Toast.makeText(requireContext(), "正在完成设备握手，请稍后再试", Toast.LENGTH_SHORT).show()
             return
         }
 

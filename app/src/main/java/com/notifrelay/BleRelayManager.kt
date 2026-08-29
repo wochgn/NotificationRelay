@@ -145,6 +145,7 @@ class BleRelayManager private constructor(context: Context) {
     private var pendingConnectDeviceId: String? = null
     private var autoConnectSaved = true
     @Volatile private var autoReconnectPaused = false
+    @Volatile private var centralConnecting = false
 
     // 心跳：周期上报电量
     private val handler = Handler(Looper.getMainLooper())
@@ -158,6 +159,13 @@ class BleRelayManager private constructor(context: Context) {
     // 外设发送的延时调度（用命名 Runnable 以便 stopAll 时精准移除）
     private val peripheralSendRunnable = object : Runnable {
         override fun run() { peripheralSendNext() }
+    }
+
+    // 部分机型在刚完成 CCCD 订阅时会丢掉第一包 notify，重复握手可避免连接停在“未知设备”。
+    private val helloRetryRunnable = object : Runnable {
+        override fun run() {
+            if (connected && !disconnecting) sendHello()
+        }
     }
 
     // 扫描超时：SCAN_TIMEOUT_MS 后自动停扫
@@ -237,6 +245,8 @@ class BleRelayManager private constructor(context: Context) {
 
     fun isAutoReconnectPaused(): Boolean = autoReconnectPaused
 
+    fun isConnecting(): Boolean = centralConnecting
+
     fun isDiscoveryScanning(): Boolean = scanning
 
     fun consumeUserDisconnectEvent(): Boolean {
@@ -265,7 +275,7 @@ class BleRelayManager private constructor(context: Context) {
      * 用户点按设备列表里的设备再调用 connectTo() 主动连接（我方作中心）。
      */
     fun startDiscovery(autoConnectSaved: Boolean = true) {
-        if (connected) return
+        if (connected || centralConnecting) return
         stopAll()
         this.autoConnectSaved = autoConnectSaved && !autoReconnectPaused
         if (!hasBlePermissions()) {
@@ -555,6 +565,7 @@ class BleRelayManager private constructor(context: Context) {
         writing = false
         disconnectAfterCentralWrite = false
         handler.removeCallbacks(peripheralSendRunnable)
+        handler.removeCallbacks(helloRetryRunnable)
         handler.removeCallbacks(disconnectTimeoutRunnable)
         synchronized(peripheralLock) {
             peripheralQueue.clear()
@@ -572,6 +583,7 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun clearConnectionState() {
+        centralConnecting = false
         role = Role.NONE
         connected = false
         remoteName = ""
@@ -611,6 +623,13 @@ class BleRelayManager private constructor(context: Context) {
 
     private fun sendHello() {
         sendToRemote(infoJson().put("type", "hello").toString())
+    }
+
+    private fun sendHelloWithRetry() {
+        handler.removeCallbacks(helloRetryRunnable)
+        sendHello()
+        handler.postDelayed(helloRetryRunnable, 500L)
+        handler.postDelayed(helloRetryRunnable, 1_500L)
     }
 
     private fun sendStatus() {
@@ -736,7 +755,7 @@ class BleRelayManager private constructor(context: Context) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
             // 此时中心已订阅 notify，可靠地把本机设备名+电量推给对方
-            sendHello()
+            sendHelloWithRetry()
         }
     }
 
@@ -752,12 +771,22 @@ class BleRelayManager private constructor(context: Context) {
                 ?.getManufacturerSpecificData(Constants.MANUFACTURER_ID)
                 ?.let { bytesToHex(it) }
                 .orEmpty()
+            // 部分 ROM 会把厂商数据放在另一条扫描回调中；已配对设备可用广播名称补齐身份。
+            val savedByName = if (deviceId.isBlank() && name.isNotBlank()) {
+                SettingsRepository.get(appContext).savedDevices()
+                    .firstOrNull { it.name == name }
+            } else null
+            val previous = discoveredDevices.values.firstOrNull { it.address == address }
+            val resolvedDeviceId = deviceId
+                .ifBlank { savedByName?.deviceId.orEmpty() }
+                .ifBlank { previous?.deviceId.orEmpty() }
+            val resolvedName = name.ifBlank { previous?.name.orEmpty() }
             // 用稳定 deviceId 去重（缺失时退回 address）
-            val key = if (deviceId.isNotBlank()) deviceId else address
-            discoveredDevices[key] = ScanDevice(deviceId, address, name, result.rssi)
+            val key = if (resolvedDeviceId.isNotBlank()) resolvedDeviceId else address
+            discoveredDevices[key] = ScanDevice(resolvedDeviceId, address, resolvedName, result.rssi)
             notifyDiscovery()
 
-            if (!connected && deviceId == pendingConnectDeviceId) {
+            if (!connected && resolvedDeviceId == pendingConnectDeviceId) {
                 pendingConnectDeviceId = null
                 log("已找到配对设备，正在连接 $name")
                 stopDiscovery()
@@ -768,14 +797,14 @@ class BleRelayManager private constructor(context: Context) {
 
             // 只对已保存设备自动重连。首次发现的新设备必须由用户在列表中确认连接，
             // 避免附近安装了本应用的陌生设备被自动连上。
-            if (connected || deviceId.isBlank()) return
+            if (connected || resolvedDeviceId.isBlank()) return
             if (!autoConnectSaved) return
-            if (SettingsRepository.get(appContext).findByDeviceId(deviceId) == null) return
+            if (SettingsRepository.get(appContext).findByDeviceId(resolvedDeviceId) == null) return
 
             // 自动协商中心/外设：deviceId 字典序较小的一方作中心主动连接，另一方继续广播等待。
             // 规则两侧一致 → 恰好一方连、一方等，不会双连。
             val myId = SettingsRepository.get(appContext).deviceId()
-            if (deviceId < myId) {
+            if (resolvedDeviceId < myId) {
                 log("自动协商：对方（$name）作中心，我继续广播等待")
                 return
             }
@@ -791,20 +820,33 @@ class BleRelayManager private constructor(context: Context) {
 
     private fun connectAsCentral(device: BluetoothDevice) {
         // autoConnect=false：直接连接。true 会把连接请求挂起等待，是「卡在连接中」的常见原因。
+        centralConnecting = true
+        role = Role.CENTRAL
+        notifyState()
         bluetoothGatt = device.connectGatt(appContext, false, gattCallback)
+        if (bluetoothGatt == null) {
+            centralConnecting = false
+            clearConnectionState()
+            notifyState()
+            log("中心：发起连接失败")
+        }
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                centralConnecting = false
                 role = Role.CENTRAL
                 connected = true
                 notifyState()
                 log("中心：已连接，开始发现服务")
                 // GATT 操作必须串行：这里只做服务发现，不要并发 requestMtu
-                gatt.discoverServices()
+                if (!gatt.discoverServices()) {
+                    failCentralConnection(gatt, "发起服务发现失败")
+                }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 if (gatt != bluetoothGatt) return
+                centralConnecting = false
                 if (!disconnecting) autoReconnectPaused = false
                 try { gatt.close() } catch (_: Exception) {}
                 bluetoothGatt = null
@@ -824,27 +866,31 @@ class BleRelayManager private constructor(context: Context) {
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                log("发现服务失败 status=$status")
+                failCentralConnection(gatt, "发现服务失败 status=$status")
                 return
             }
             val service = gatt.getService(Constants.SERVICE_UUID)
             if (service == null) {
-                log("未找到目标服务")
+                failCentralConnection(gatt, "未找到目标服务")
                 return
             }
             charFromCentral = service.getCharacteristic(Constants.CHAR_FROM_CENTRAL)
             charFromPeripheral = service.getCharacteristic(Constants.CHAR_FROM_PERIPHERAL)
             if (charFromPeripheral == null) {
-                log("中心：未找到接收特征值")
+                failCentralConnection(gatt, "中心：未找到接收特征值")
                 return
             }
             subscribeToNotifications(gatt)
         }
 
         override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
-            log("中心：订阅${if (status == BluetoothGatt.GATT_SUCCESS) "成功" else "失败($status)"}")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                failCentralConnection(gatt, "中心：订阅失败($status)")
+                return
+            }
+            log("中心：订阅成功")
             // 订阅成功后把本机设备名/版本/电量推给对方
-            sendHello()
+            sendHelloWithRetry()
         }
 
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
@@ -871,6 +917,20 @@ class BleRelayManager private constructor(context: Context) {
         cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
         val ok = gatt.writeDescriptor(cccd)
         log("中心：发起订阅（writeDescriptor=$ok）")
+        if (!ok) failCentralConnection(gatt, "中心：发起订阅失败")
+    }
+
+    private fun failCentralConnection(gatt: BluetoothGatt, reason: String) {
+        if (gatt != bluetoothGatt) return
+        centralConnecting = false
+        try { gatt.disconnect() } catch (_: Exception) {}
+        try { gatt.close() } catch (_: Exception) {}
+        bluetoothGatt = null
+        charFromCentral = null
+        charFromPeripheral = null
+        clearConnectionState()
+        notifyState()
+        log(reason)
     }
 
     private fun writeNext() {

@@ -30,6 +30,7 @@ class RelayForegroundService : Service() {
         if (SettingsRepository.get(this).foregroundEnabled &&
             SettingsRepository.get(this).savedDevices().isNotEmpty() &&
             !manager.visibleConnected() &&
+            !manager.isConnecting() &&
             !manager.isAutoReconnectPaused() &&
             (manager.role == BleRelayManager.Role.NONE ||
                 (manager.role == BleRelayManager.Role.AUTO && !manager.isDiscoveryScanning()))
