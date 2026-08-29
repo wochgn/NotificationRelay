@@ -14,7 +14,7 @@
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
         app:title="设备"
-         app:titleTextAppearance="@style/TextAppearance.Material3.HeadlineMedium" />
+         app:titleTextAppearance="@style/TextAppearance.Material3.HeadlineSmall" />
 
     <FrameLayout
         android:id="@+id/fragment_container"

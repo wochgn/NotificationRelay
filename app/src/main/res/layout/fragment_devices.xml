@@ -15,8 +15,7 @@
         android:layout_height="wrap_content"
          app:cardBackgroundColor="?attr/colorSurfaceContainer"
          app:cardCornerRadius="24dp"
-         app:cardElevation="0dp"
-         app:strokeWidth="0dp">
+         app:cardElevation="0dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -146,46 +145,48 @@
                 android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                 android:textColor="?attr/colorOnPrimaryContainer" />
 
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="end"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal">
+             <LinearLayout
+                 android:layout_width="match_parent"
+                 android:layout_height="wrap_content"
+                 android:layout_marginTop="8dp"
+                 android:orientation="vertical">
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_find_device"
-                     style="@style/Widget.Material3.Button.OutlinedButton"
-                     android:layout_width="wrap_content"
+                 <com.google.android.material.button.MaterialButton
+                     android:id="@+id/btn_find_device"
+                     style="@style/Widget.Material3.Button.TextButton"
+                     android:layout_width="match_parent"
                      android:layout_height="wrap_content"
-                     android:minHeight="40dp"
-                     android:paddingStart="12dp"
-                     android:paddingEnd="12dp"
+                     android:gravity="start|center_vertical"
+                     android:minHeight="48dp"
                      android:text="查找设备"
-                     android:textColor="?attr/colorOnPrimaryContainer" />
+                     android:textColor="?attr/colorOnPrimaryContainer"
+                     app:icon="@drawable/ic_search"
+                     app:iconGravity="textStart" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_unpair"
-                     style="@style/Widget.Material3.Button.OutlinedButton"
-                     android:layout_width="wrap_content"
+                 <com.google.android.material.button.MaterialButton
+                     android:id="@+id/btn_unpair"
+                     style="@style/Widget.Material3.Button.TextButton"
+                     android:layout_width="match_parent"
                      android:layout_height="wrap_content"
-                     android:minHeight="40dp"
-                     android:paddingStart="12dp"
-                     android:paddingEnd="12dp"
+                     android:gravity="start|center_vertical"
+                     android:minHeight="48dp"
                      android:text="取消配对"
-                     android:textColor="?attr/colorOnPrimaryContainer" />
+                     android:textColor="?attr/colorOnPrimaryContainer"
+                     app:icon="@drawable/ic_unpair"
+                     app:iconGravity="textStart" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btn_disconnect"
-                     style="@style/Widget.Material3.Button.OutlinedButton"
-                     android:layout_width="wrap_content"
+                 <com.google.android.material.button.MaterialButton
+                     android:id="@+id/btn_disconnect"
+                     style="@style/Widget.Material3.Button.TextButton"
+                     android:layout_width="match_parent"
                      android:layout_height="wrap_content"
-                     android:minHeight="40dp"
-                     android:paddingStart="12dp"
-                     android:paddingEnd="12dp"
+                     android:gravity="start|center_vertical"
+                     android:minHeight="48dp"
                      android:text="断开连接"
-                     android:textColor="?attr/colorOnPrimaryContainer" />
-            </LinearLayout>
+                     android:textColor="?attr/colorOnPrimaryContainer"
+                     app:icon="@drawable/ic_link_off"
+                     app:iconGravity="textStart" />
+             </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -197,8 +198,7 @@
         android:visibility="gone"
          app:cardBackgroundColor="?attr/colorTertiaryContainer"
          app:cardCornerRadius="24dp"
-         app:cardElevation="0dp"
-         app:strokeWidth="0dp">
+         app:cardElevation="0dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -224,14 +224,11 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_test_notification"
-                 style="@style/Widget.Material3.Button.OutlinedButton"
+                 style="@style/Widget.Material3.Button.TextButton"
                  android:layout_width="wrap_content"
                  android:layout_height="wrap_content"
                  android:layout_gravity="end"
                  android:layout_marginTop="8dp"
-                 android:minHeight="40dp"
-                 android:paddingStart="16dp"
-                 android:paddingEnd="16dp"
                  android:text="发送测试通知"
                 android:textColor="?attr/colorOnTertiaryContainer" />
         </LinearLayout>
