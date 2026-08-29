@@ -161,7 +161,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         app:cornerRadius="20dp"
-        app:icon="@drawable/ic_bluetooth"
+        app:icon="@drawable/ic_search"
         android:text="扫描设备" />
 
     <TextView

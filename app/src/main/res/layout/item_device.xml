@@ -17,7 +17,7 @@
         android:background="@drawable/bg_icon_container"
         android:contentDescription="@null"
         android:padding="12dp"
-        android:src="@drawable/ic_bluetooth"
+        android:src="@drawable/ic_phone"
         android:tint="?attr/colorOnSecondaryContainer" />
 
     <LinearLayout

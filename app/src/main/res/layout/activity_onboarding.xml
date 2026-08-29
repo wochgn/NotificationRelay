@@ -26,7 +26,7 @@
                 android:background="@drawable/bg_icon_container"
                 android:contentDescription="@null"
                 android:padding="24dp"
-                android:src="@drawable/ic_bluetooth"
+                android:src="@drawable/ic_relay"
                 android:tint="?attr/colorOnSecondaryContainer" />
 
             <TextView
