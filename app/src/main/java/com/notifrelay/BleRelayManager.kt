@@ -1317,7 +1317,7 @@ class BleRelayManager private constructor(context: Context) {
 
             val builder = Notification.Builder(appContext, Constants.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_sms)
-                .setContentTitle("验证码：$otpCode")
+                .setContentTitle(otpCode)
                 .setContentText(otpCode)
                 .setSubText(titleLine)
                 .setCategory(Notification.CATEGORY_MESSAGE)
