@@ -8,7 +8,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.Fragment
@@ -42,7 +41,17 @@ class DevicesFragment : Fragment() {
             val justDisconnected = wasConnected && !nowConnected
             val userDisconnect = manager.consumeUserDisconnectEvent()
             wasConnected = nowConnected
-            if (justDisconnected && !manualDisconnect && !userDisconnect) manager.startDiscovery()
+            if (justDisconnected) {
+                if (manualDisconnect || userDisconnect) {
+                    binding.root.postDelayed({
+                        if (_binding != null && manager.role == BleRelayManager.Role.NONE) {
+                            manager.startDiscovery(autoConnectSaved = false)
+                        }
+                    }, 900L)
+                } else {
+                    manager.startDiscovery()
+                }
+            }
             manualDisconnect = false
             refresh()
         }
@@ -94,9 +103,14 @@ class DevicesFragment : Fragment() {
 
     private fun refresh() {
         // 状态卡
-        binding.tvBtStatus.text = if (isBluetoothEnabled()) "已开启" else "未开启"
-        binding.tvListenerStatus.text = if (isListenerEnabled()) "已开启" else "未开启"
-        binding.tvServiceStatus.text = if (repo.foregroundEnabled) "已开启" else "未开启"
+        val bluetoothEnabled = isBluetoothEnabled()
+        val listenerEnabled = isListenerEnabled()
+        val serviceEnabled = repo.foregroundEnabled
+        binding.tvBtStatus.text = if (bluetoothEnabled) "已开启" else "未开启"
+        binding.tvListenerStatus.text = if (listenerEnabled) "已开启" else "未开启"
+        binding.tvServiceStatus.text = if (serviceEnabled) "已开启" else "未开启"
+        binding.cardStatus.visibility =
+            if (bluetoothEnabled && listenerEnabled && serviceEnabled) View.GONE else View.VISIBLE
 
         // 已连接设备卡
         val connected = manager.visibleConnected()
@@ -138,10 +152,10 @@ class DevicesFragment : Fragment() {
                         d.deviceId,
                         address,
                         d.name.ifBlank { address },
-                        d.android.ifBlank { if (scan != null) address else "未发现，请扫描" },
+                        if (scan != null) d.android.ifBlank { address }
+                        else listOf(d.android, "点击自动查找并连接").filter { it.isNotBlank() }.joinToString(" · "),
                         d.deviceId == connectedDeviceId,
-                        deletable = true,
-                        connectable = scan != null
+                        deletable = true
                     )
                 )
             }
@@ -159,8 +173,7 @@ class DevicesFragment : Fragment() {
                         name,
                         s.address,
                         s.deviceId == connectedDeviceId,
-                        deletable = false,
-                        connectable = true
+                        deletable = false
                     )
                 )
             }
@@ -176,8 +189,7 @@ class DevicesFragment : Fragment() {
                 requireContext(),
                 rows,
                 { row -> requestConnection(row) },
-                { deviceId -> confirmDelete(deviceId) },
-                { toast("设备未发现，请先点「扫描设备」") }
+                { deviceId -> confirmDelete(deviceId) }
             )
             binding.listDevices.adapter = adapter
         } else {
@@ -187,7 +199,8 @@ class DevicesFragment : Fragment() {
 
     private fun requestConnection(row: DeviceRow) {
         if (manager.visibleConnected()) return
-        manager.connectTo(row.address)
+        if (row.address.isNotBlank()) manager.connectTo(row.address)
+        else if (row.deletable) manager.connectToSaved(row.deviceId)
     }
 
     private fun confirmDelete(deviceId: String) {
@@ -201,10 +214,6 @@ class DevicesFragment : Fragment() {
             }
             .setNegativeButton("取消", null)
             .show()
-    }
-
-    private fun toast(msg: String) {
-        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
     }
 
     private fun isBluetoothEnabled(): Boolean {
@@ -224,16 +233,14 @@ private data class DeviceRow(
     val name: String,
     val subtitle: String,
     val isConnected: Boolean,
-    val deletable: Boolean = false,
-    val connectable: Boolean = true
+    val deletable: Boolean = false
 )
 
 private class DeviceAdapter(
     private val context: Context,
     rows: List<Any>,
     private val onConnect: (DeviceRow) -> Unit,
-    private val onDelete: (String) -> Unit,
-    private val onUnavailable: () -> Unit
+    private val onDelete: (String) -> Unit
 ) : BaseAdapter() {
 
     private var rows: List<Any> = rows
@@ -270,7 +277,7 @@ private class DeviceAdapter(
             state.text = if (row.isConnected) "已连接" else "连接"
             v.setOnClickListener {
                 if (row.isConnected) return@setOnClickListener
-                if (row.connectable) onConnect(row) else onUnavailable()
+                onConnect(row)
             }
             if (row.deletable) {
                 v.setOnLongClickListener { onDelete(row.deviceId); true }

@@ -119,6 +119,8 @@ class BleRelayManager private constructor(context: Context) {
     private val discoveryListeners = CopyOnWriteArrayList<(DiscoveryState) -> Unit>()
     // 扫描结果去重累积（address -> 设备）
     private val discoveredDevices = LinkedHashMap<String, ScanDevice>()
+    private var pendingConnectDeviceId: String? = null
+    private var autoConnectSaved = true
 
     // 心跳：周期上报电量
     private val handler = Handler(Looper.getMainLooper())
@@ -230,9 +232,10 @@ class BleRelayManager private constructor(context: Context) {
      * 发现模式：同时广播（可被发现）+ 扫描（发现对方），但**不**自动连接。
      * 用户点按设备列表里的设备再调用 connectTo() 主动连接（我方作中心）。
      */
-    fun startDiscovery() {
+    fun startDiscovery(autoConnectSaved: Boolean = true) {
         if (connected) return
         stopAll()
+        this.autoConnectSaved = autoConnectSaved
         if (!hasBlePermissions()) {
             log("蓝牙权限未授予，无法发现设备")
             return
@@ -300,6 +303,17 @@ class BleRelayManager private constructor(context: Context) {
         val device = adapter.getRemoteDevice(address)
         log("连接 $address …")
         connectAsCentral(device)
+    }
+
+    fun connectToSaved(deviceId: String) {
+        val discovered = discoveredDevices.values.firstOrNull { it.deviceId == deviceId }
+        if (discovered != null) {
+            connectTo(discovered.address)
+            return
+        }
+        startDiscovery()
+        pendingConnectDeviceId = deviceId
+        log("正在查找已配对设备…")
     }
 
     fun acceptPairing() {
@@ -488,6 +502,7 @@ class BleRelayManager private constructor(context: Context) {
         recvBuffer.reset()
         recvTotalLen = -1
         discoveredDevices.clear()
+        pendingConnectDeviceId = null
         notifyDiscovery()
         clearConnectionState()
         notifyState()
@@ -678,9 +693,19 @@ class BleRelayManager private constructor(context: Context) {
             discoveredDevices[key] = ScanDevice(deviceId, address, name, result.rssi)
             notifyDiscovery()
 
+            if (!connected && deviceId == pendingConnectDeviceId) {
+                pendingConnectDeviceId = null
+                log("已找到配对设备，正在连接 $name")
+                stopDiscovery()
+                closeGattServer()
+                connectAsCentral(device)
+                return
+            }
+
             // 只对已保存设备自动重连。首次发现的新设备必须由用户在列表中确认连接，
             // 避免附近安装了本应用的陌生设备被自动连上。
             if (connected || deviceId.isBlank()) return
+            if (!autoConnectSaved) return
             if (SettingsRepository.get(appContext).findByDeviceId(deviceId) == null) return
 
             // 自动协商中心/外设：deviceId 字典序较小的一方作中心主动连接，另一方继续广播等待。
