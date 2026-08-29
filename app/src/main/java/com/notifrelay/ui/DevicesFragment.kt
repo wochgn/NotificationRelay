@@ -34,13 +34,15 @@ class DevicesFragment : Fragment() {
     private var lastDiscovery = DiscoveryState(false, emptyList())
     private var adapter: DeviceAdapter? = null
     private var wasConnected = false
+    private var manualDisconnect = false
 
     private val stateListener: (RelayState) -> Unit = { _ ->
         activity?.runOnUiThread {
             val nowConnected = manager.connected
             val justDisconnected = wasConnected && !nowConnected
             wasConnected = nowConnected
-            if (justDisconnected) manager.startDiscovery()
+            if (justDisconnected && !manualDisconnect) manager.startDiscovery()
+            manualDisconnect = false
             refresh()
         }
     }
@@ -61,7 +63,11 @@ class DevicesFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         binding.btnScan.setOnClickListener { manager.startDiscovery() }
-        binding.btnDisconnect.setOnClickListener { manager.stopAll() }
+        binding.btnDisconnect.setOnClickListener {
+            manualDisconnect = true
+            manager.disconnect()
+            refresh()
+        }
     }
 
     override fun onResume() {
@@ -98,7 +104,8 @@ class DevicesFragment : Fragment() {
             binding.tvRemoteName.text = manager.remoteName.ifBlank { "未知设备" }
             val android = manager.remoteAndroid.ifBlank { "版本未知" }
             val battery = if (manager.remoteBattery >= 0) "电量 ${manager.remoteBattery}%" else "电量未知"
-            binding.tvRemoteMeta.text = "$android · $battery"
+            val state = if (manager.pairingRequired) "等待配对确认" else "$android · $battery"
+            binding.tvRemoteMeta.text = state
         }
 
         // 扫描按钮
@@ -179,17 +186,7 @@ class DevicesFragment : Fragment() {
 
     private fun requestConnection(row: DeviceRow) {
         if (manager.connected) return
-        if (row.deletable) {
-            manager.connectTo(row.address)
-            return
-        }
-
-        AlertDialog.Builder(requireContext())
-            .setTitle("配对请求")
-            .setMessage("是否与「${row.name}」建立通知流转连接？\n\n确认后会记住此设备，以便下次自动重连。")
-            .setPositiveButton("配对并连接") { _, _ -> manager.connectTo(row.address) }
-            .setNegativeButton("取消", null)
-            .show()
+        manager.connectTo(row.address)
     }
 
     private fun confirmDelete(deviceId: String) {

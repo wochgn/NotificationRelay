@@ -45,7 +45,9 @@ data class RelayState(
     val connected: Boolean = false,
     val remoteName: String = "",
     val remoteBattery: Int = -1,
-    val remoteAndroid: String = ""
+    val remoteAndroid: String = "",
+    val pairingRequired: Boolean = false,
+    val paired: Boolean = false
 )
 
 /** 扫描发现到的设备（去重后的一行）。deviceId 为稳定身份，address 仅用于当前连接。 */
@@ -102,6 +104,10 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile var remoteBattery: Int = -1
     @Volatile var remoteAndroid: String = ""
     @Volatile var remoteDeviceId: String = ""
+    @Volatile var pairingRequired: Boolean = false
+    @Volatile var paired: Boolean = false
+    private var localPairAccepted = false
+    private var remotePairAccepted = false
 
     // 状态观察者（UI / 常驻通知）
     private val stateListeners = CopyOnWriteArrayList<(RelayState) -> Unit>()
@@ -182,9 +188,11 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun notifyState() {
-        val s = RelayState(role, connected, remoteName, remoteBattery, remoteAndroid)
+        val s = RelayState(role, connected, remoteName, remoteBattery, remoteAndroid, pairingRequired, paired)
         stateListeners.forEach { it(s) }
     }
+
+    fun needsLocalPairConfirmation(): Boolean = pairingRequired && !localPairAccepted
 
     fun observeDiscovery(listener: (DiscoveryState) -> Unit) {
         discoveryListeners.add(listener)
@@ -275,6 +283,28 @@ class BleRelayManager private constructor(context: Context) {
         val device = adapter.getRemoteDevice(address)
         log("连接 $address …")
         connectAsCentral(device)
+    }
+
+    fun acceptPairing() {
+        if (!connected || !pairingRequired) return
+        localPairAccepted = true
+        sendToRemote(infoJson().put("type", "pair_accept").toString())
+        completePairingIfReady()
+        notifyState()
+        log("本机已确认配对，等待对方确认")
+    }
+
+    fun rejectPairing() {
+        if (!connected || !pairingRequired) return
+        sendToRemote(infoJson().put("type", "pair_reject").toString())
+        log("本机已拒绝配对")
+        disconnect()
+    }
+
+    fun disconnect() {
+        clearConnectionState()
+        notifyState()
+        stopAll()
     }
 
     private fun startScanning() {
@@ -370,8 +400,9 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun stopAll() {
-        try { bluetoothGatt?.disconnect(); bluetoothGatt?.close() } catch (_: Exception) {}
+        val oldGatt = bluetoothGatt
         bluetoothGatt = null
+        try { oldGatt?.disconnect(); oldGatt?.close() } catch (_: Exception) {}
         charFromCentral = null
         charFromPeripheral = null
         stopAdvertising()
@@ -392,15 +423,23 @@ class BleRelayManager private constructor(context: Context) {
         recvTotalLen = -1
         discoveredDevices.clear()
         notifyDiscovery()
+        clearConnectionState()
+        notifyState()
+        log("已停止")
+    }
+
+    private fun clearConnectionState() {
         role = Role.NONE
         connected = false
         remoteName = ""
         remoteBattery = -1
         remoteAndroid = ""
         remoteDeviceId = ""
+        pairingRequired = false
+        paired = false
+        localPairAccepted = false
+        remotePairAccepted = false
         mtu = 23
-        notifyState()
-        log("已停止")
     }
 
     private fun stopAdvertising() {
@@ -504,13 +543,9 @@ class BleRelayManager private constructor(context: Context) {
                 notifyState()
                 log("外设：中心已连接 ${device.name ?: device.address}")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                if (device != centralDevice) return
                 centralDevice = null
-                connected = false
-                remoteName = ""
-                remoteBattery = -1
-                remoteAndroid = ""
-                remoteDeviceId = ""
-                role = Role.NONE
+                clearConnectionState()
                 notifyState()
                 log("外设：中心已断开 status=$status")
             }
@@ -612,16 +647,12 @@ class BleRelayManager private constructor(context: Context) {
                 // GATT 操作必须串行：这里只做服务发现，不要并发 requestMtu
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                connected = false
-                remoteName = ""
-                remoteBattery = -1
-                remoteAndroid = ""
-                remoteDeviceId = ""
+                if (gatt != bluetoothGatt) return
                 try { gatt.close() } catch (_: Exception) {}
                 bluetoothGatt = null
                 charFromCentral = null
                 charFromPeripheral = null
-                role = Role.NONE
+                clearConnectionState()
                 notifyState()
                 log("中心：连接断开 status=$status")
             }
@@ -771,9 +802,16 @@ class BleRelayManager private constructor(context: Context) {
                     remoteDeviceId = obj.optString("id", "").ifBlank { remoteDeviceId }
                     remoteBattery = obj.optInt("battery", -1)
                     remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
+                    val saved = SettingsRepository.get(appContext).findByDeviceId(remoteDeviceId)
+                    paired = saved != null
+                    pairingRequired = !paired
+                    localPairAccepted = paired
+                    remotePairAccepted = paired
                     notifyState()
                     log("握手：远端 ${remoteName.ifBlank { "未知" }} $remoteAndroid 电量 $remoteBattery%")
-                    saveRemoteIfKnown()
+                    if (paired) {
+                        sendToRemote(infoJson().put("type", "pair_accept").toString())
+                    }
                 }
                 "status" -> {
                     remoteName = obj.optString("device", "").ifBlank { remoteName }
@@ -781,9 +819,25 @@ class BleRelayManager private constructor(context: Context) {
                     remoteBattery = obj.optInt("battery", -1)
                     remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
                     notifyState()
-                    saveRemoteIfKnown()
+                }
+                "pair_accept" -> {
+                    remoteName = obj.optString("device", "").ifBlank { remoteName }
+                    remoteDeviceId = obj.optString("id", "").ifBlank { remoteDeviceId }
+                    remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
+                    remotePairAccepted = true
+                    completePairingIfReady()
+                    notifyState()
+                    log("对方已确认配对")
+                }
+                "pair_reject" -> {
+                    log("对方已拒绝配对")
+                    disconnect()
                 }
                 else -> {
+                    if (!paired) {
+                        log("配对未完成，忽略远程通知")
+                        return
+                    }
                     log("收到远程通知")
                     val device = obj.optString("device", "")
                     val app = obj.optString("app", "远程")
@@ -808,6 +862,15 @@ class BleRelayManager private constructor(context: Context) {
     private fun saveRemoteIfKnown() {
         if (remoteDeviceId.isBlank() || remoteName.isBlank()) return
         SettingsRepository.get(appContext).saveDevice(SavedDevice(remoteDeviceId, remoteName, remoteAndroid))
+    }
+
+    private fun completePairingIfReady() {
+        if (!localPairAccepted || !remotePairAccepted) return
+        saveRemoteIfKnown()
+        paired = true
+        pairingRequired = false
+        notifyState()
+        log("双方已确认，配对完成")
     }
 
     private fun postLocalNotification(device: String, app: String, title: String, text: String, key: String, ongoing: Boolean) {
