@@ -30,6 +30,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_ONLY_WHITELIST = "only_whitelist"
         private const val KEY_WHITELIST = "whitelist"
         private const val KEY_FOREGROUND_ENABLED = "foreground_enabled"
+        private const val KEY_OTP_LIVE_ENABLED = "otp_live_enabled"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
@@ -51,6 +52,11 @@ class SettingsRepository private constructor(context: Context) {
     var foregroundEnabled: Boolean
         get() = prefs.getBoolean(KEY_FOREGROUND_ENABLED, false)
         set(v) = prefs.edit().putBoolean(KEY_FOREGROUND_ENABLED, v).apply()
+
+    // 是否在 Android 16+ 使用验证码实时通知，关闭后回退到普通通知
+    var otpLiveEnabled: Boolean
+        get() = prefs.getBoolean(KEY_OTP_LIVE_ENABLED, true)
+        set(v) = prefs.edit().putBoolean(KEY_OTP_LIVE_ENABLED, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean

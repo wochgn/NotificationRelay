@@ -1301,7 +1301,10 @@ class BleRelayManager private constructor(context: Context) {
 
     /** Android 16+ 使用 ProgressStyle；API 不可用时由调用方回退到普通通知。 */
     private fun buildOtpLiveNotification(app: String, titleLine: String, otpCode: String?): Notification? {
-        if (otpCode.isNullOrBlank() || android.os.Build.VERSION.SDK_INT < 36) return null
+        if (!SettingsRepository.get(appContext).otpLiveEnabled ||
+            otpCode.isNullOrBlank() ||
+            android.os.Build.VERSION.SDK_INT < 36
+        ) return null
         if (appContext.checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED ||
             appContext.checkSelfPermission("android.permission.POST_PROMOTED_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED
         ) return null

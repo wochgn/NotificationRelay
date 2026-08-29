@@ -66,6 +66,16 @@ class SettingsFragment : Fragment() {
             ).show()
         }
 
+        binding.switchOtpLive.isChecked = repo.otpLiveEnabled
+        binding.switchOtpLive.setOnCheckedChangeListener { _, checked ->
+            repo.otpLiveEnabled = checked
+            Toast.makeText(
+                requireContext(),
+                if (checked) "验证码实时通知已开启" else "验证码实时通知已关闭，将使用普通通知",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
     }
 
     override fun onResume() {
