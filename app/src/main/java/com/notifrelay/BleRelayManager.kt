@@ -560,9 +560,13 @@ class BleRelayManager private constructor(context: Context) {
             discoveredDevices[key] = ScanDevice(deviceId, address, name, result.rssi)
             notifyDiscovery()
 
+            // 只对已保存设备自动重连。首次发现的新设备必须由用户在列表中确认连接，
+            // 避免附近安装了本应用的陌生设备被自动连上。
+            if (connected || deviceId.isBlank()) return
+            if (SettingsRepository.get(appContext).findByDeviceId(deviceId) == null) return
+
             // 自动协商中心/外设：deviceId 字典序较小的一方作中心主动连接，另一方继续广播等待。
             // 规则两侧一致 → 恰好一方连、一方等，不会双连。
-            if (connected || deviceId.isBlank()) return
             val myId = SettingsRepository.get(appContext).deviceId()
             if (deviceId < myId) {
                 log("自动协商：对方（$name）作中心，我继续广播等待")

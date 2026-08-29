@@ -167,7 +167,7 @@ class DevicesFragment : Fragment() {
             adapter = DeviceAdapter(
                 requireContext(),
                 rows,
-                { address -> if (!manager.connected) manager.connectTo(address) },
+                { row -> requestConnection(row) },
                 { deviceId -> confirmDelete(deviceId) },
                 { toast("设备未发现，请先点「扫描设备」") }
             )
@@ -175,6 +175,21 @@ class DevicesFragment : Fragment() {
         } else {
             adapter?.setRows(rows)
         }
+    }
+
+    private fun requestConnection(row: DeviceRow) {
+        if (manager.connected) return
+        if (row.deletable) {
+            manager.connectTo(row.address)
+            return
+        }
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("配对请求")
+            .setMessage("是否与「${row.name}」建立通知流转连接？\n\n确认后会记住此设备，以便下次自动重连。")
+            .setPositiveButton("配对并连接") { _, _ -> manager.connectTo(row.address) }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun confirmDelete(deviceId: String) {
@@ -218,7 +233,7 @@ private data class DeviceRow(
 private class DeviceAdapter(
     private val context: Context,
     rows: List<Any>,
-    private val onConnect: (String) -> Unit,
+    private val onConnect: (DeviceRow) -> Unit,
     private val onDelete: (String) -> Unit,
     private val onUnavailable: () -> Unit
 ) : BaseAdapter() {
@@ -257,7 +272,7 @@ private class DeviceAdapter(
             state.text = if (row.isConnected) "已连接" else "连接"
             v.setOnClickListener {
                 if (row.isConnected) return@setOnClickListener
-                if (row.connectable) onConnect(row.address) else onUnavailable()
+                if (row.connectable) onConnect(row) else onUnavailable()
             }
             if (row.deletable) {
                 v.setOnLongClickListener { onDelete(row.deviceId); true }
