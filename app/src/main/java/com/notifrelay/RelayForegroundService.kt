@@ -85,6 +85,14 @@ class RelayForegroundService : Service() {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("通知流转")
             .setContentText(text)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    1,
+                    Intent(this, MainActivity::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
             .setOngoing(true)
             .setSilent(true)
         if (state.connected) {
