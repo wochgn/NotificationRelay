@@ -79,8 +79,11 @@ class MainActivity : AppCompatActivity() {
 
         val name = relayManager.remoteName.ifBlank { "附近设备" }
         pairingDialog = MaterialAlertDialogBuilder(this)
-            .setTitle("配对请求")
-            .setMessage("「$name」希望建立通知流转连接。请确认两台设备上显示的名称一致。")
+            .setTitle("确认配对设备")
+            .setMessage(
+                "「$name」请求与你建立通知流转连接。\n\n" +
+                    "请先核对两台设备上显示的设备名称，确认名称一致且确实是你要连接的设备。"
+            )
             .setPositiveButton("确认配对") { _, _ -> relayManager.acceptPairing() }
             .setNegativeButton("拒绝") { _, _ -> relayManager.rejectPairing() }
             .setCancelable(false)

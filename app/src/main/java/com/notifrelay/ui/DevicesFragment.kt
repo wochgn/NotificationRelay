@@ -9,9 +9,9 @@ import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.fragment.app.Fragment
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.notifrelay.BleRelayManager
 import com.notifrelay.DiscoveryState
 import com.notifrelay.R
@@ -243,13 +243,13 @@ class DevicesFragment : Fragment() {
     private fun confirmDelete(deviceId: String) {
         val name = repo.findByDeviceId(deviceId)?.name ?: deviceId
         val connected = manager.visibleConnected() && manager.remoteDeviceId == deviceId
-        AlertDialog.Builder(requireContext())
-            .setTitle(if (connected) "取消配对" else "删除设备")
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(if (connected) "取消配对设备" else "删除已配对设备")
             .setMessage(
                 if (connected)
-                    "确定取消与「$name」的配对吗？双方将同步删除配对记录并断开连接。"
+                    "确定要取消与「$name」的配对吗？此操作会同步删除双方的配对记录并断开连接。"
                 else
-                    "确定删除已配对设备「$name」吗？"
+                    "确定要删除已配对设备「$name」吗？"
             )
             .setPositiveButton("取消配对") { _, _ ->
                 manager.unpair(deviceId)
