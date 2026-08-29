@@ -91,6 +91,8 @@ class BleRelayManager private constructor(context: Context) {
         // 外设 notify 无确认，靠发送间隔做流控，避免连发导致丢片
         private const val PERIPHERAL_NOTIFY_DELAY_MS = 25L
         private const val DISCONNECT_TIMEOUT_MS = 750L
+        private const val CENTRAL_CONNECT_TIMEOUT_MS = 12_000L
+        private const val HANDSHAKE_TIMEOUT_MS = 8_000L
         // 单次扫描时长，超时自动停扫（不停广播）
         private const val SCAN_TIMEOUT_MS = 15_000L
     }
@@ -129,6 +131,7 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile var remoteDeviceId: String = ""
     @Volatile var pairingRequired: Boolean = false
     @Volatile var paired: Boolean = false
+    @Volatile private var applicationReady = false
     @Volatile var findingRemote: Boolean = false
     @Volatile private var userDisconnectEvent = false
     @Volatile private var disconnecting = false
@@ -168,6 +171,32 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    private val centralConnectTimeoutRunnable = Runnable {
+        if (centralConnecting) {
+            val gatt = bluetoothGatt
+            if (gatt != null) {
+                failCentralConnection(gatt, "中心：连接超时")
+            } else {
+                centralConnecting = false
+                clearConnectionState()
+                notifyState()
+                log("中心：连接超时")
+            }
+        }
+    }
+
+    private val handshakeTimeoutRunnable = Runnable {
+        if (connected && !applicationReady) {
+            log("应用层握手超时，断开后重试")
+            val gatt = bluetoothGatt
+            if (role == Role.CENTRAL && gatt != null) {
+                failCentralConnection(gatt, "中心：应用层握手超时")
+            } else {
+                closeConnection()
+            }
+        }
+    }
+
     // 扫描超时：SCAN_TIMEOUT_MS 后自动停扫
     private val scanTimeoutRunnable = object : Runnable {
         override fun run() {
@@ -186,6 +215,8 @@ class BleRelayManager private constructor(context: Context) {
     // ---- 外设侧 ----
     private var gattServer: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
+    private var advertisingRequested = false
+    @Volatile private var serviceReady = false
     private var centralDevice: BluetoothDevice? = null
     private var charToCentral: BluetoothGattCharacteristic? = null
 
@@ -241,13 +272,15 @@ class BleRelayManager private constructor(context: Context) {
 
     fun needsLocalPairConfirmation(): Boolean = pairingRequired && !localPairAccepted
 
-    fun visibleConnected(): Boolean = connected && !disconnecting
+    fun visibleConnected(): Boolean = connected && applicationReady && !disconnecting
 
     fun isAutoReconnectPaused(): Boolean = autoReconnectPaused
 
     fun isConnecting(): Boolean = centralConnecting
 
     fun isDiscoveryScanning(): Boolean = scanning
+
+    fun isDiscoveryActive(): Boolean = scanning || gattServer != null || advertiser != null
 
     fun consumeUserDisconnectEvent(): Boolean {
         val occurred = userDisconnectEvent
@@ -276,6 +309,12 @@ class BleRelayManager private constructor(context: Context) {
      */
     fun startDiscovery(autoConnectSaved: Boolean = true) {
         if (connected || centralConnecting) return
+        // 前台服务和设备页可能同时请求发现；已有发现会话不能被重置，
+        // 否则会中断刚由扫描触发的 GATT 连接。
+        if (role == Role.AUTO && gattServer != null && scanning) {
+            this.autoConnectSaved = autoConnectSaved && !autoReconnectPaused
+            return
+        }
         stopAll()
         this.autoConnectSaved = autoConnectSaved && !autoReconnectPaused
         if (!hasBlePermissions()) {
@@ -284,15 +323,46 @@ class BleRelayManager private constructor(context: Context) {
         }
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (!adapter.isEnabled) { log("请先手动打开蓝牙"); return }
-        role = Role.AUTO
+        val saved = SettingsRepository.get(appContext).savedDevices().firstOrNull()
+        val myId = SettingsRepository.get(appContext).deviceId()
+        // 已配对后固定角色：deviceId 较小的一方主动扫描连接，较大的一方只广播等待。
+        // 这样两端不会同时发起 GATT 连接，避免把一条连接误判成两个角色。
+        role = if (this.autoConnectSaved && saved != null) {
+            if (myId < saved.deviceId) Role.CENTRAL else Role.PERIPHERAL
+        } else {
+            Role.AUTO
+        }
         notifyState()
 
-        // 可被发现：GATT server + 广播
+        if (role != Role.CENTRAL) startAdvertising()
+        if (role != Role.PERIPHERAL) startScanning()
+        log(
+            when (role) {
+                Role.CENTRAL -> "自动回连：我作中心，扫描已配对设备"
+                Role.PERIPHERAL -> "自动回连：我作外设，广播等待中心连接"
+                else -> "发现模式：广播 + 扫描，等待点按连接…"
+            }
+        )
+    }
+
+    private fun startAdvertising() {
+        val adapter = btAdapter ?: return
+        advertisingRequested = true
+        serviceReady = false
         val server = btManager.openGattServer(appContext, gattServerCallback)
         gattServer = server
         if (!server.addService(buildService())) {
             log("添加 GATT 服务失败")
+        } else {
+            // GATT 服务注册是异步的。必须等 onServiceAdded 成功后再开始广播，
+            // 否则另一端可能先连上却发现不到目标服务。
+            log("GATT 服务注册中")
         }
+    }
+
+    private fun startAdvertisingBeacon() {
+        if (!advertisingRequested || advertiser != null) return
+        val adapter = btAdapter ?: return
 
         advertiser = adapter.bluetoothLeAdvertiser
         val advSettings = AdvertiseSettings.Builder()
@@ -300,25 +370,17 @@ class BleRelayManager private constructor(context: Context) {
             .setConnectable(true)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
             .build()
-        // advertise data 只放 service UUID（供对方 ScanFilter 过滤）。
-        // 设备名放 scan response（独立 31 字节预算），避免和 128-bit UUID 挤在 advertise data 里超限。
         val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
             .build()
         val scanResponseBuilder = AdvertiseData.Builder()
-        // 厂商数据(12 字节) + 名称 AD 头(2 字节) + 名称；名称 > 17 字节则省略，避免超过 31 字节
         val nameBytes = (adapter.name ?: "").toByteArray(Charsets.UTF_8)
-        if (nameBytes.size <= 17) {
-            scanResponseBuilder.setIncludeDeviceName(true)
-        }
+        if (nameBytes.size <= 17) scanResponseBuilder.setIncludeDeviceName(true)
         scanResponseBuilder.addManufacturerData(
             Constants.MANUFACTURER_ID,
             hexToBytes(SettingsRepository.get(appContext).deviceId())
         )
         advertiser?.startAdvertising(advSettings, advData, scanResponseBuilder.build(), advertiseCallback)
-
-        startScanning()
-        log("发现模式：广播 + 扫描，等待点按连接…")
     }
 
     private fun hasBlePermissions(): Boolean = listOf(
@@ -449,11 +511,11 @@ class BleRelayManager private constructor(context: Context) {
     private fun startScanning() {
         val adapter = btAdapter ?: return
         scanner = adapter.bluetoothLeScanner
-        val filter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
-            .build()
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+        val filter = ScanFilter.Builder()
+            .setServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
             .build()
         scanning = true
         scanner?.startScan(listOf(filter), settings, scanCallback)
@@ -566,6 +628,7 @@ class BleRelayManager private constructor(context: Context) {
         disconnectAfterCentralWrite = false
         handler.removeCallbacks(peripheralSendRunnable)
         handler.removeCallbacks(helloRetryRunnable)
+        handler.removeCallbacks(handshakeTimeoutRunnable)
         handler.removeCallbacks(disconnectTimeoutRunnable)
         synchronized(peripheralLock) {
             peripheralQueue.clear()
@@ -583,6 +646,7 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun clearConnectionState() {
+        applicationReady = false
         centralConnecting = false
         role = Role.NONE
         connected = false
@@ -600,6 +664,7 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun stopAdvertising() {
+        advertisingRequested = false
         try { advertiser?.stopAdvertising(advertiseCallback) } catch (_: Exception) {}
         advertiser = null
     }
@@ -691,9 +756,25 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            if (service.uuid != Constants.SERVICE_UUID) return
+            if (status == BluetoothGatt.GATT_SUCCESS && gattServer != null && role != Role.CENTRAL) {
+                serviceReady = true
+                log("GATT 服务注册成功，开始广播")
+                startAdvertisingBeacon()
+            } else {
+                log("GATT 服务注册失败 status=$status")
+            }
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 if (gattServer == null) return
+                if (!serviceReady) {
+                    log("外设：服务尚未就绪，拒绝过早连接")
+                    try { gattServer?.cancelConnection(device) } catch (_: Exception) {}
+                    return
+                }
                 // 防御：我方已是中心时，忽略本机 server 对同一物理链路报上来的连接事件，
                 // 避免把 role 从 CENTRAL 顶回 PERIPHERAL，导致中心走错发送路径。
                 if (role == Role.CENTRAL) {
@@ -703,6 +784,9 @@ class BleRelayManager private constructor(context: Context) {
                 role = Role.PERIPHERAL
                 centralDevice = device
                 connected = true
+                applicationReady = false
+                handler.removeCallbacks(handshakeTimeoutRunnable)
+                handler.postDelayed(handshakeTimeoutRunnable, HANDSHAKE_TIMEOUT_MS)
                 mtu = 23
                 stopDiscovery()
                 notifyState()
@@ -766,21 +850,29 @@ class BleRelayManager private constructor(context: Context) {
             if (!scanning) return
             val device = result.device
             val address = device.address ?: return
-            val name = device.name ?: ""
-            val deviceId = result.scanRecord
+            val record = result.scanRecord
+            val name = device.name ?: record?.deviceName.orEmpty()
+            val deviceId = record
                 ?.getManufacturerSpecificData(Constants.MANUFACTURER_ID)
                 ?.let { bytesToHex(it) }
                 .orEmpty()
-            // 部分 ROM 会把厂商数据放在另一条扫描回调中；已配对设备可用广播名称补齐身份。
-            val savedByName = if (deviceId.isBlank() && name.isNotBlank()) {
-                SettingsRepository.get(appContext).savedDevices()
-                    .firstOrNull { it.name == name }
-            } else null
-            val previous = discoveredDevices.values.firstOrNull { it.address == address }
+            val savedDevices = SettingsRepository.get(appContext).savedDevices()
+            val savedByName = savedDevices.firstOrNull { it.name == name }
+            val pendingSaved = pendingConnectDeviceId?.let { id ->
+                savedDevices.firstOrNull { it.deviceId == id }
+            }
+            // 部分系统只返回带服务 UUID 的主广播，不返回 scan response 中的厂商数据。
+            // 只有用户明确点击的设备，或名称明确匹配已配对设备时，才允许补齐身份；
+            // 不能把附近任意 BLE 设备当成唯一已配对设备。
             val resolvedDeviceId = deviceId
                 .ifBlank { savedByName?.deviceId.orEmpty() }
-                .ifBlank { previous?.deviceId.orEmpty() }
-            val resolvedName = name.ifBlank { previous?.name.orEmpty() }
+                .ifBlank { pendingSaved?.takeIf { name.isNotBlank() && name == it.name }?.deviceId.orEmpty() }
+                // 扫描已经按本应用 Service UUID 过滤；只有一条已配对记录时，
+                // 即使 ROM 隐藏了厂商数据，也可以安全确认这是目标设备。
+                .ifBlank { if (savedDevices.size == 1) savedDevices[0].deviceId else "" }
+            val resolvedName = name.ifBlank {
+                savedDevices.firstOrNull { it.deviceId == resolvedDeviceId }?.name.orEmpty()
+            }
             // 用稳定 deviceId 去重（缺失时退回 address）
             val key = if (resolvedDeviceId.isNotBlank()) resolvedDeviceId else address
             discoveredDevices[key] = ScanDevice(resolvedDeviceId, address, resolvedName, result.rssi)
@@ -788,7 +880,7 @@ class BleRelayManager private constructor(context: Context) {
 
             if (!connected && resolvedDeviceId == pendingConnectDeviceId) {
                 pendingConnectDeviceId = null
-                log("已找到配对设备，正在连接 $name")
+                log("已找到配对设备，正在连接 $resolvedName")
                 stopDiscovery()
                 closeGattServer()
                 connectAsCentral(device)
@@ -805,10 +897,15 @@ class BleRelayManager private constructor(context: Context) {
             // 规则两侧一致 → 恰好一方连、一方等，不会双连。
             val myId = SettingsRepository.get(appContext).deviceId()
             if (resolvedDeviceId < myId) {
-                log("自动协商：对方（$name）作中心，我继续广播等待")
+                log("自动协商：对方（$resolvedName）作中心，我继续广播等待")
                 return
             }
-            log("自动协商：我作中心，连接 $name")
+            log("自动协商：我作中心，连接 $resolvedName")
+            // 先占用中心角色再关闭 GATT server，避免关闭/连接之间的回调窗口
+            // 把同一条连接误判为外设连接。
+            centralConnecting = true
+            role = Role.CENTRAL
+            notifyState()
             stopDiscovery()
             closeGattServer() // 我方作中心：关闭本机 GATT server，避免其回调把 role 顶回外设
             connectAsCentral(device)
@@ -824,7 +921,9 @@ class BleRelayManager private constructor(context: Context) {
         role = Role.CENTRAL
         notifyState()
         bluetoothGatt = device.connectGatt(appContext, false, gattCallback)
+        handler.postDelayed(centralConnectTimeoutRunnable, CENTRAL_CONNECT_TIMEOUT_MS)
         if (bluetoothGatt == null) {
+            handler.removeCallbacks(centralConnectTimeoutRunnable)
             centralConnecting = false
             clearConnectionState()
             notifyState()
@@ -834,18 +933,29 @@ class BleRelayManager private constructor(context: Context) {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+            if (newState == BluetoothProfile.STATE_CONNECTING) {
+                log("中心：连接中")
+            } else if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                handler.removeCallbacks(centralConnectTimeoutRunnable)
                 centralConnecting = false
                 role = Role.CENTRAL
                 connected = true
+                applicationReady = false
+                handler.removeCallbacks(handshakeTimeoutRunnable)
+                handler.postDelayed(handshakeTimeoutRunnable, HANDSHAKE_TIMEOUT_MS)
                 notifyState()
                 log("中心：已连接，开始发现服务")
                 // GATT 操作必须串行：这里只做服务发现，不要并发 requestMtu
-                if (!gatt.discoverServices()) {
-                    failCentralConnection(gatt, "发起服务发现失败")
-                }
+                refreshGattCache(gatt)
+                handler.postDelayed({
+                    if (gatt != bluetoothGatt || !connected) return@postDelayed
+                    if (!gatt.discoverServices()) {
+                        failCentralConnection(gatt, "发起服务发现失败")
+                    }
+                }, 300L)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 if (gatt != bluetoothGatt) return
+                handler.removeCallbacks(centralConnectTimeoutRunnable)
                 centralConnecting = false
                 if (!disconnecting) autoReconnectPaused = false
                 try { gatt.close() } catch (_: Exception) {}
@@ -855,6 +965,9 @@ class BleRelayManager private constructor(context: Context) {
                 clearConnectionState()
                 notifyState()
                 log("中心：连接断开 status=$status")
+            } else {
+                handler.removeCallbacks(centralConnectTimeoutRunnable)
+                failCentralConnection(gatt, "中心：连接失败 status=$status state=$newState")
             }
         }
 
@@ -876,8 +989,8 @@ class BleRelayManager private constructor(context: Context) {
             }
             charFromCentral = service.getCharacteristic(Constants.CHAR_FROM_CENTRAL)
             charFromPeripheral = service.getCharacteristic(Constants.CHAR_FROM_PERIPHERAL)
-            if (charFromPeripheral == null) {
-                failCentralConnection(gatt, "中心：未找到接收特征值")
+            if (charFromCentral == null || charFromPeripheral == null) {
+                failCentralConnection(gatt, "中心：特征值不完整")
                 return
             }
             subscribeToNotifications(gatt)
@@ -931,6 +1044,15 @@ class BleRelayManager private constructor(context: Context) {
         clearConnectionState()
         notifyState()
         log(reason)
+    }
+
+    private fun refreshGattCache(gatt: BluetoothGatt) {
+        try {
+            val refreshed = gatt.javaClass.getMethod("refresh").invoke(gatt) as? Boolean
+            log("中心：刷新 GATT 缓存 ${if (refreshed == true) "成功" else "未执行"}")
+        } catch (_: Exception) {
+            log("中心：刷新 GATT 缓存不可用")
+        }
     }
 
     private fun writeNext() {
@@ -1032,6 +1154,8 @@ class BleRelayManager private constructor(context: Context) {
                     pairingRequired = !paired
                     localPairAccepted = paired
                     remotePairAccepted = paired
+                    applicationReady = remoteDeviceId.isNotBlank()
+                    if (applicationReady) handler.removeCallbacks(handshakeTimeoutRunnable)
                     notifyState()
                     log("握手：远端 ${remoteName.ifBlank { "未知" }} $remoteAndroid 电量 $remoteBattery%")
                     if (paired) {
@@ -1049,6 +1173,8 @@ class BleRelayManager private constructor(context: Context) {
                     remoteName = obj.optString("device", "").ifBlank { remoteName }
                     remoteDeviceId = obj.optString("id", "").ifBlank { remoteDeviceId }
                     remoteAndroid = obj.optString("android", "").ifBlank { remoteAndroid }
+                    applicationReady = remoteDeviceId.isNotBlank()
+                    if (applicationReady) handler.removeCallbacks(handshakeTimeoutRunnable)
                     remotePairAccepted = true
                     completePairingIfReady()
                     notifyState()

@@ -32,8 +32,7 @@ class RelayForegroundService : Service() {
             !manager.visibleConnected() &&
             !manager.isConnecting() &&
             !manager.isAutoReconnectPaused() &&
-            (manager.role == BleRelayManager.Role.NONE ||
-                (manager.role == BleRelayManager.Role.AUTO && !manager.isDiscoveryScanning()))
+            !manager.isDiscoveryActive()
         ) {
             // 扫描有单次超时，定期重启以覆盖远端稍后才进入可发现状态的情况。
             manager.startDiscovery()
