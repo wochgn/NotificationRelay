@@ -24,7 +24,10 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
@@ -98,6 +101,25 @@ class BleRelayManager private constructor(context: Context) {
     private val btManager: BluetoothManager =
         appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val btAdapter: BluetoothAdapter? = btManager.adapter
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_OFF -> {
+                    autoReconnectPaused = false
+                    closeConnection()
+                    log("蓝牙已关闭，已清理连接状态")
+                }
+                BluetoothAdapter.STATE_ON -> {
+                    if (SettingsRepository.get(appContext).savedDevices().isNotEmpty()) {
+                        handler.postDelayed({
+                            if (!connected && btAdapter?.isEnabled == true) startDiscovery()
+                        }, 1_000L)
+                    }
+                }
+            }
+        }
+    }
 
     @Volatile var role: Role = Role.NONE
     @Volatile var connected: Boolean = false
@@ -184,6 +206,10 @@ class BleRelayManager private constructor(context: Context) {
     private var notifId = 1000
 
     init {
+        appContext.registerReceiver(
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        )
         handler.postDelayed(heartbeat, HEARTBEAT_MS)
     }
 
@@ -649,6 +675,7 @@ class BleRelayManager private constructor(context: Context) {
                 log("外设：中心已连接 ${device.name ?: device.address}")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 if (device != centralDevice) return
+                if (!disconnecting) autoReconnectPaused = false
                 centralDevice = null
                 clearConnectionState()
                 notifyState()
@@ -763,6 +790,7 @@ class BleRelayManager private constructor(context: Context) {
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 if (gatt != bluetoothGatt) return
+                if (!disconnecting) autoReconnectPaused = false
                 try { gatt.close() } catch (_: Exception) {}
                 bluetoothGatt = null
                 charFromCentral = null
