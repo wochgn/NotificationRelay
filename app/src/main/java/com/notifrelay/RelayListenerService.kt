@@ -56,7 +56,10 @@ class RelayListenerService : NotificationListenerService() {
         }
         if (lastPostedHashes.put(sbn.key, fingerprint) == fingerprint) return
         EventLog.add("本机通知 [$sbn.packageName]")
-        BleRelayManager.get(this).sendToRemote(json)
+        BleRelayManager.get(this).apply {
+            sendToRemote(json)
+            sendAppIconIfNeeded(sbn.packageName)
+        }
     }
 
     override fun onNotificationRemoved(

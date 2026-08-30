@@ -30,9 +30,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.LruCache
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
@@ -59,6 +61,17 @@ data class ScanDevice(val deviceId: String, val address: String, val name: Strin
 
 /** 发现状态快照（扫描开关 + 已发现设备列表）。 */
 data class DiscoveryState(val scanning: Boolean, val devices: List<ScanDevice>)
+
+private data class RemoteNotificationData(
+    val id: Int,
+    val device: String,
+    val pkg: String,
+    val app: String,
+    val title: String,
+    val text: String,
+    val ongoing: Boolean,
+    val otpCode: String?
+)
 
 /**
  * BLE 双向传输管理。
@@ -245,6 +258,11 @@ class BleRelayManager private constructor(context: Context) {
     private val peripheralLock = Any()
 
     private var notifId = 1000
+    private val sentIconPackages = HashSet<String>()
+    private val remoteAppIcons = LruCache<String, Bitmap>(64)
+    private val remoteNotifications = object : LinkedHashMap<Int, RemoteNotificationData>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, RemoteNotificationData>?): Boolean = size > 64
+    }
 
     init {
         appContext.registerReceiver(
@@ -552,6 +570,29 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    fun sendAppIconIfNeeded(packageName: String) {
+        if (packageName.isBlank() || !visibleConnected() || !paired) return
+        synchronized(sentIconPackages) {
+            if (!sentIconPackages.add(packageName)) return
+        }
+        Thread {
+            val encoded = AppIconCodec.encode(appContext, packageName)
+            handler.post {
+                if (encoded == null || !visibleConnected() || !paired) {
+                    synchronized(sentIconPackages) { sentIconPackages.remove(packageName) }
+                    return@post
+                }
+                sendToRemote(
+                    JSONObject()
+                        .put("type", "app_icon")
+                        .put("pkg", packageName)
+                        .put("data", encoded)
+                        .toString()
+                )
+            }
+        }.start()
+    }
+
     /**
      * 外设→中心发送：notify 是「无确认」的，连发会溢出 GATT server 缓冲导致丢片，
      * 中心侧永远凑不齐完整 JSON。这里像中心写队列一样串行化，并给每片留出发送间隔。
@@ -647,6 +688,8 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun clearConnectionState() {
+        synchronized(sentIconPackages) { sentIconPackages.clear() }
+        synchronized(remoteNotifications) { remoteNotifications.clear() }
         applicationReady = false
         centralConnecting = false
         role = Role.NONE
@@ -1207,8 +1250,21 @@ class BleRelayManager private constructor(context: Context) {
                     if (key.isNotBlank()) {
                         appContext.getSystemService(NotificationManager::class.java)
                             .cancel(key.hashCode())
+                        synchronized(remoteNotifications) { remoteNotifications.remove(key.hashCode()) }
                         log("已清除远程通知")
                     }
+                }
+                "app_icon" -> {
+                    if (!paired) return
+                    val pkg = obj.optString("pkg", "")
+                    val bitmap = AppIconCodec.decode(obj.optString("data", ""))
+                    if (pkg.isBlank() || bitmap == null) return
+                    remoteAppIcons.put(remoteIconKey(pkg), bitmap)
+                    val notifications = synchronized(remoteNotifications) {
+                        remoteNotifications.values.filter { it.pkg == pkg }.toList()
+                    }
+                    notifications.forEach { renderLocalNotification(it, logPosted = false) }
+                    log("已缓存远端应用图标：$pkg")
                 }
                 "find_device" -> {
                     if (!paired) return
@@ -1229,6 +1285,7 @@ class BleRelayManager private constructor(context: Context) {
                     }
                     log("收到远程通知")
                     val device = obj.optString("device", "")
+                    val pkg = obj.optString("pkg", "")
                     val app = obj.optString("app", "远程")
                     val title = obj.optString("title", "")
                     val text = obj.optString("text", "")
@@ -1242,7 +1299,7 @@ class BleRelayManager private constructor(context: Context) {
                         remoteName = device
                         notifyState()
                     }
-                    postLocalNotification(device, app, title, text, key, ongoing, otpCode)
+                    postLocalNotification(device, pkg, app, title, text, key, ongoing, otpCode)
                 }
             }
         } catch (e: Exception) {
@@ -1267,6 +1324,7 @@ class BleRelayManager private constructor(context: Context) {
 
     private fun postLocalNotification(
         device: String,
+        pkg: String,
         app: String,
         title: String,
         text: String,
@@ -1274,37 +1332,47 @@ class BleRelayManager private constructor(context: Context) {
         ongoing: Boolean,
         otpCode: String? = null
     ) {
-        val nm = appContext.getSystemService(NotificationManager::class.java)
-        ensureChannels(nm)
-
-        // 常驻/不可清除类通知进单独通道（默认静默），方便在系统设置里单独管理
-        val channelId = if (ongoing) Constants.CHANNEL_ID_ONGOING else Constants.CHANNEL_ID
-
         // 用通知 key 的 hash 作为稳定 id：同一条通知的更新会覆盖同一条，而不是堆积新通知
         val id = if (key.isNotEmpty()) key.hashCode() else notifId++
+        val data = RemoteNotificationData(id, device, pkg, app, title, text, ongoing, otpCode)
+        synchronized(remoteNotifications) { remoteNotifications[id] = data }
+        renderLocalNotification(data, logPosted = true)
+    }
+
+    private fun renderLocalNotification(data: RemoteNotificationData, logPosted: Boolean) {
+        val nm = appContext.getSystemService(NotificationManager::class.java)
+        ensureChannels(nm)
+        val channelId = if (data.ongoing) Constants.CHANNEL_ID_ONGOING else Constants.CHANNEL_ID
+        val appIcon = remoteAppIcons.get(remoteIconKey(data.pkg))
 
         // 标题格式：<远端设备名> | <应用名> | <通知标题>（空段自动省略）
-        val titleLine = listOf(device, app, title).filter { it.isNotBlank() }.joinToString(" | ")
+        val titleLine = listOf(data.device, data.app, data.title).filter { it.isNotBlank() }.joinToString(" | ")
 
-        val liveNotification = buildOtpLiveNotification(app, title, text, otpCode)
+        val liveNotification = buildOtpLiveNotification(data.app, data.title, data.text, data.otpCode, appIcon)
         val n = liveNotification
             ?: NotificationCompat.Builder(appContext, channelId)
                 .setSmallIcon(R.drawable.ic_notification)
+                .setLargeIcon(appIcon)
                 .setContentTitle(titleLine)
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentText(data.text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(data.text))
                 .setAutoCancel(true)
                 .build()
-        nm.notify(id, n)
-        log("已弹出本地通知：$titleLine（${if (liveNotification != null) "实时验证码" else if (ongoing) "常驻" else "普通"}通道）")
+        nm.notify(data.id, n)
+        if (logPosted) {
+            log("已弹出本地通知：$titleLine（${if (liveNotification != null) "实时验证码" else if (data.ongoing) "常驻" else "普通"}通道）")
+        }
     }
+
+    private fun remoteIconKey(packageName: String): String = "$remoteDeviceId|$packageName"
 
     /** Android 16+ 使用 ProgressStyle；API 不可用时由调用方回退到普通通知。 */
     private fun buildOtpLiveNotification(
         app: String,
         title: String,
         text: String,
-        otpCode: String?
+        otpCode: String?,
+        appIcon: Bitmap?
     ): Notification? {
         if (!SettingsRepository.get(appContext).otpLiveEnabled ||
             otpCode.isNullOrBlank() ||
@@ -1325,6 +1393,7 @@ class BleRelayManager private constructor(context: Context) {
 
             val builder = Notification.Builder(appContext, Constants.CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_sms)
+                .setLargeIcon(appIcon)
                 .setContentTitle(otpCode)
                 .setContentText(text)
                 .setSubText(listOf(app, title).filter { it.isNotBlank() }.joinToString(" · "))
