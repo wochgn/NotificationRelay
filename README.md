@@ -9,16 +9,17 @@ UI 遵循 Material Design 3（含动态取色）。
 - **通知标题带远端设备名**：`<远端设备名> | <应用名> | <通知标题>`，设备名默认取系统设备名、可在设置中修改
 - **同步清除通知**：本机通知从通知栏移除后，远端对应的流转通知也会一并清除
 - **按应用选择是否转发**：应用页列出已安装应用，可勾选；配合「仅转发选中」开关实现白名单
-- **连接测试**：在设置页通过当前 BLE 链路向远端发送测试通知
+- **连接测试**：在设备页通过当前 BLE 链路向远端发送测试通知
 - **查找设备**：从主界面或常驻状态通知控制远端以来电铃声响铃，远端通知可停止响铃
 - **常驻后台 + 常驻通知**：前台服务（`connectedDevice` 类型）保活，状态栏常驻通知实时显示连接状态与远端电量
+- **验证码实时通知**：识别带明确关键词的验证码，Android 16+ 使用实时通知突出显示，低版本自动回退普通通知
 - **分通道管理**：普通通知 / 常驻通知 / 后台状态三个独立通知通道，可在系统设置中分别管理
 
 ## 技术栈
 
 | 项 | 选型 |
 |---|---|
-| 语言 / UI | Kotlin + ViewBinding + Material 3（动态取色） |
+| 语言 / UI | Kotlin + Jetpack Compose + Material 3（动态取色） |
 | BLE | 系统 `android.bluetooth.le`，无三方库 |
 | 通知读取 | `NotificationListenerService` |
 | 保活 | 前台服务（`foregroundServiceType=connectedDevice`） |
@@ -45,7 +46,7 @@ UI 遵循 Material Design 3（含动态取色）。
 |---|---|
 | 设备 | 两端打开设备页 → 在附近设备中点击对方 → 在两台设备上分别确认配对 |
 | 应用 | 可选：开启「仅转发选中」，勾选要转发的应用 |
-| 设置 | 可选：改设备名、开「常驻后台」，或发送测试通知检查连接 |
+| 设置 | 可选：改设备名、开「常驻后台」或配置验证码实时通知 |
 
 连接成功后，任意一台收到通知，另一台会弹出 `<设备名> | <应用> | <标题>` 的通知。
 
@@ -57,6 +58,7 @@ UI 遵循 Material Design 3（含动态取色）。
 |---|---|
 | `BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT` / `BLUETOOTH_ADVERTISE` | BLE 扫描/连接/广播（运行时申请） |
 | `POST_NOTIFICATIONS`（Android 13+） | 弹出流转通知 |
+| `POST_PROMOTED_NOTIFICATIONS`（Android 16+） | 请求显示验证码实时通知，不可用时自动回退 |
 | `QUERY_ALL_PACKAGES` | 解析通知来源应用名 |
 | `FOREGROUND_SERVICE(_CONNECTED_DEVICE)` | 前台保活 |
 
@@ -77,7 +79,7 @@ ColorOS / HyperOS 会对后台应用做激进回收。开启「常驻后台」�
 
 ## 已知限制
 
-- **OTP 脱敏（Android 15+）**：HyperOS/Android 16 上验证码类敏感通知内容会被系统脱敏，普通通知不受影响；需 `CompanionDeviceManager` 信任通道豁免，属二期
+- **OTP 脱敏（Android 15+）**：若来源通知已被系统脱敏，应用无法恢复被隐藏的验证码内容
 - **不传图片**：仅标题 + 正文（截断 2000 字符）
 - **未加密**：BLE 链路未 bonding，明文传输
 - **电量为自定义 status 消息**：非标准 Battery Service
@@ -86,11 +88,11 @@ ColorOS / HyperOS 会对后台应用做激进回收。开启「常驻后台」�
 
 ```
 app/src/main/java/com/notifrelay/
-├── MainActivity.kt             单 Activity + 底部导航（三页）
+├── MainActivity.kt             Compose 主界面入口
+├── OnboardingActivity.kt       Compose 首次授权引导
 ├── ui/
-│   ├── DevicesFragment.kt      设备页（发现/配对/连接状态）
-│   ├── AppsFragment.kt         应用页（白名单 + 搜索 + 开关）
-│   └── SettingsFragment.kt     设置页（设备名 / 常驻后台）
+│   ├── MainContent.kt          Compose 导航、设备、应用与设置页
+│   └── RelayTheme.kt           Material 3 动态主题
 ├── BleRelayManager.kt          BLE 双角色 + 分片 + hello/status 消息 + 状态监听
 ├── RelayListenerService.kt     通知读取 + 过滤
 ├── RelayForegroundService.kt   前台保活 + 常驻状态通知
