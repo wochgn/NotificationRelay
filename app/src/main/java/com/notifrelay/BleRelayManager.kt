@@ -1356,6 +1356,7 @@ class BleRelayManager private constructor(context: Context) {
                 .setContentTitle(titleLine)
                 .setContentText(data.text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(data.text))
+                .setOnlyAlertOnce(true)
                 .setAutoCancel(true)
                 .build()
         nm.notify(data.id, n)
@@ -1398,6 +1399,7 @@ class BleRelayManager private constructor(context: Context) {
                 .setContentText(text)
                 .setSubText(listOf(app, title).filter { it.isNotBlank() }.joinToString(" · "))
                 .setCategory(Notification.CATEGORY_MESSAGE)
+                .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .setTimeoutAfter(5 * 60 * 1000L)
             Notification.Builder::class.java.methods
