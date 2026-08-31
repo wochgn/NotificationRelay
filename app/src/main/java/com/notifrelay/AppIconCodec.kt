@@ -8,15 +8,15 @@ import androidx.core.graphics.drawable.toBitmap
 import java.io.ByteArrayOutputStream
 
 object AppIconCodec {
-    private const val ICON_SIZE = 32
-    private const val MAX_ENCODED_LENGTH = 4_096
+    private const val ICON_SIZE = 64
+    private const val MAX_ENCODED_LENGTH = 12_000
 
     fun encode(context: Context, packageName: String): String? {
         return try {
             val drawable = context.packageManager.getApplicationIcon(packageName)
             val bitmap = drawable.toBitmap(ICON_SIZE, ICON_SIZE, Bitmap.Config.ARGB_8888)
             val output = ByteArrayOutputStream()
-            if (!bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 60, output)) null
+            if (!bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, 90, output)) null
             else Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
                 .takeIf { it.length <= MAX_ENCODED_LENGTH }
         } catch (_: Exception) {
