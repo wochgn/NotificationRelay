@@ -181,7 +181,7 @@ class BleRelayManager private constructor(context: Context) {
         }
         val handshakeTimeoutRunnable = Runnable {
             if (connected && !applicationReady) {
-                log("应用层握手超时，断开后重试")
+                logGeneral("应用层握手超时，断开后重试")
                 if (role == Role.CENTRAL) failCentralConnection(this, "中心：应用层握手超时")
                 else closeSession(this, "外设：应用层握手超时")
             }
@@ -285,6 +285,9 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     private fun log(msg: String) = EventLog.add(msg)
+
+    // 一般日志（错误/警告类），不受「启用日志显示」开关影响，始终记录
+    private fun logGeneral(msg: String) = EventLog.addGeneral(msg)
 
     // ================= 会话工具 =================
 
@@ -401,7 +404,7 @@ class BleRelayManager private constructor(context: Context) {
         shuttingDown = false
         this.autoConnectSaved = autoConnectSaved && !autoReconnectPaused
         if (!hasBlePermissions()) {
-            log("蓝牙权限未授予，无法发现设备")
+            logGeneral("蓝牙权限未授予，无法发现设备")
             return
         }
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
@@ -417,7 +420,7 @@ class BleRelayManager private constructor(context: Context) {
             val server = try { btManager.openGattServer(appContext, gattServerCallback) } catch (_: Exception) { null }
             gattServer = server
             if (server == null || !server.addService(buildService())) {
-                log("添加 GATT 服务失败")
+                logGeneral("添加 GATT 服务失败")
             } else {
                 // GATT 服务注册是异步的。必须等 onServiceAdded 成功后再开始广播，
                 // 否则另一端可能先连上却发现不到目标服务。
@@ -477,12 +480,12 @@ class BleRelayManager private constructor(context: Context) {
         val adapter = btAdapter ?: run { log("无蓝牙适配器"); return }
         if (address.isBlank()) return
         if (sessionByAddress(address) != null) {
-            log("该设备已在连接中，忽略重复连接")
+            logGeneral("该设备已在连接中，忽略重复连接")
             return
         }
         autoReconnectPaused = false
         val device = try { adapter.getRemoteDevice(address) } catch (_: Exception) { null }
-        if (device == null) { log("无效设备地址 $address"); return }
+        if (device == null) { logGeneral("无效设备地址 $address"); return }
         log("连接 $address …")
         connectAsCentral(device)
     }
@@ -515,7 +518,7 @@ class BleRelayManager private constructor(context: Context) {
     fun rejectPairing(deviceId: String) {
         val session = sessionByDeviceId(deviceId) ?: return
         if (!session.connected || !session.pairingRequired) return
-        log("本机已拒绝配对")
+        logGeneral("本机已拒绝配对")
         sendControlAndDisconnect(session, "pair_reject")
     }
 
@@ -523,7 +526,7 @@ class BleRelayManager private constructor(context: Context) {
     fun disconnect(deviceId: String? = null) {
         val targets = sessionsSnapshot().filter { deviceId == null || it.remoteDeviceId == deviceId || it.address == deviceId }
         if (targets.isEmpty()) return
-        log("正在同步断开连接")
+        logGeneral("正在同步断开连接")
         targets.forEach {
             autoReconnectPaused = true
             sendControlAndDisconnect(it, "disconnect")
@@ -676,7 +679,7 @@ class BleRelayManager private constructor(context: Context) {
     private val scanTimeoutRunnable = object : Runnable {
         override fun run() {
             if (scanning) {
-                log("扫描超时，已停止扫描")
+                logGeneral("扫描超时，已停止扫描")
                 stopScanning()
                 notifyDiscovery()
             }
@@ -700,7 +703,7 @@ class BleRelayManager private constructor(context: Context) {
                 val gatt = session.gatt
                 val char = session.charFromCentral
                 if (!session.connected || gatt == null || char == null) {
-                    log("中心未连接，丢弃消息")
+                    logGeneral("中心未连接，丢弃消息")
                     return
                 }
                 synchronized(session) {
@@ -712,12 +715,12 @@ class BleRelayManager private constructor(context: Context) {
                 val dev = session.remoteDevice
                 val server = gattServer
                 if (!session.connected || dev == null || charToCentral == null || server == null) {
-                    log("外设无中心连接，丢弃消息")
+                    logGeneral("外设无中心连接，丢弃消息")
                     return
                 }
                 enqueuePeripheral(session, chunks)
             }
-            Role.NONE, Role.AUTO -> log("未连接，丢弃消息")
+            Role.NONE, Role.AUTO -> logGeneral("未连接，丢弃消息")
         }
     }
 
@@ -803,7 +806,7 @@ class BleRelayManager private constructor(context: Context) {
             server.notifyCharacteristicChanged(dev, char, false)
         } catch (e: IllegalArgumentException) {
             // 部分机型链路 MTU 与回调值不对称导致 notify 超长：回退保守 MTU 并清空重发队列
-            log("外设 notify 数据超长(${data.size}B)，回退保守 MTU")
+            logGeneral("外设 notify 数据超长(${data.size}B)，回退保守 MTU")
             session.mtu = 23
             session.peerMtu = 23
             false
@@ -815,7 +818,7 @@ class BleRelayManager private constructor(context: Context) {
                 session.peripheralQueue.clear()
                 session.peripheralSending = false
             }
-            log("外设 notify 发送失败，清空待发队列")
+            logGeneral("外设 notify 发送失败，清空待发队列")
         }
     }
 
@@ -839,7 +842,7 @@ class BleRelayManager private constructor(context: Context) {
             char.value = chunk
             char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             if (!gatt.writeCharacteristic(char)) {
-                log("写特征值失败")
+                logGeneral("写特征值失败")
                 session.writing = false
             }
         }
@@ -913,7 +916,7 @@ class BleRelayManager private constructor(context: Context) {
                 AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "该机型不支持外设广播"
                 else -> "未知错误"
             }
-            log("广播启动失败：$msg (code=$errorCode)")
+            logGeneral("广播启动失败：$msg (code=$errorCode)")
         }
     }
 
@@ -925,7 +928,7 @@ class BleRelayManager private constructor(context: Context) {
                 log("GATT 服务注册成功，开始广播")
                 startAdvertisingBeacon()
             } else {
-                log("GATT 服务注册失败 status=$status")
+                logGeneral("GATT 服务注册失败 status=$status")
             }
         }
 
@@ -934,7 +937,7 @@ class BleRelayManager private constructor(context: Context) {
             if (status == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 if (gattServer == null) return
                 if (!serviceReady) {
-                    log("外设：服务尚未就绪，拒绝过早连接")
+                    logGeneral("外设：服务尚未就绪，拒绝过早连接")
                     try { gattServer?.cancelConnection(device) } catch (_: Exception) {}
                     return
                 }
@@ -943,9 +946,9 @@ class BleRelayManager private constructor(context: Context) {
                     val existing = sessions[address]
                     if (existing != null) {
                         if (existing.role == Role.CENTRAL) {
-                            log("外设：忽略 server 侧重复连接（我方已是中心）")
+                            logGeneral("外设：忽略 server 侧重复连接（我方已是中心）")
                         } else {
-                            log("外设：该设备已有连接，忽略新连接")
+                            logGeneral("外设：该设备已有连接，忽略新连接")
                         }
                         return
                     }
@@ -1072,7 +1075,7 @@ class BleRelayManager private constructor(context: Context) {
             connectAsCentral(device)
         }
         override fun onScanFailed(errorCode: Int) {
-            log("扫描失败 code=$errorCode")
+            logGeneral("扫描失败 code=$errorCode")
         }
     }
 
@@ -1172,7 +1175,7 @@ class BleRelayManager private constructor(context: Context) {
             // 订阅完成后串行发起 MTU 协商，成功后 onMtuChanged 会更新 session.mtu
             try {
                 if (!gatt.requestMtu(MTU_REQUEST)) {
-                    log("中心：发起 MTU 协商失败，保持默认 MTU")
+                    logGeneral("中心：发起 MTU 协商失败，保持默认 MTU")
                 }
             } catch (_: Exception) {
             }
@@ -1303,7 +1306,7 @@ class BleRelayManager private constructor(context: Context) {
                         }
                     }
                     if (duplicate != null) {
-                        log("检测到「${session.remoteName.ifBlank { session.address }}」重复链路，关闭新链路")
+                        logGeneral("检测到「${session.remoteName.ifBlank { session.address }}」重复链路，关闭新链路")
                         closeSession(session, "重复链路已关闭")
                         return
                     }
@@ -1341,11 +1344,11 @@ class BleRelayManager private constructor(context: Context) {
                     log("对方已确认配对")
                 }
                 "pair_reject" -> {
-                    log("对方已拒绝配对")
+                    logGeneral("对方已拒绝配对")
                     closeSession(session, "对方已拒绝配对")
                 }
                 "disconnect" -> {
-                    log("对方请求断开连接")
+                    logGeneral("对方请求断开连接")
                     autoReconnectPaused = true
                     userDisconnectEvent = true
                     closeSession(session, "对方请求断开连接")
@@ -1391,7 +1394,7 @@ class BleRelayManager private constructor(context: Context) {
                 }
                 else -> {
                     if (!session.paired) {
-                        log("配对未完成，忽略远程通知")
+                        logGeneral("配对未完成，忽略远程通知")
                         return
                     }
                     val key = obj.optString("key", "")
@@ -1433,7 +1436,7 @@ class BleRelayManager private constructor(context: Context) {
                 }
             }
         } catch (e: Exception) {
-            log("解析失败：${e.message}")
+            logGeneral("解析失败：${e.message}")
         }
     }
 

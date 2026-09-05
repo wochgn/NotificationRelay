@@ -48,7 +48,7 @@ class RelayListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         isConnectedToListener = false
-        EventLog.add("通知监听已断开")
+        EventLog.addGeneral("通知监听已断开")
         // 部分 ROM 在应用更新或进程重启后不会自动恢复绑定，主动请求系统重连。
         requestRebind(ComponentName(this, RelayListenerService::class.java))
     }

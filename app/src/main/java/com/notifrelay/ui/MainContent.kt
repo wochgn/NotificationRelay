@@ -17,7 +17,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -153,6 +155,20 @@ private val tabExitTransition: AnimatedContentTransitionScope<androidx.navigatio
         fadeOut(tween(90))
 }
 
+// 大屏（左侧栏布局）下导航在侧边，页面切换改为纵向滑动
+private val tabEnterTransitionWide: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
+    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+    val direction = if (forward) 1 else -1
+    slideInVertically(tween(340, delayMillis = 60, easing = EmphasizedDecelerate)) { full -> direction * full / 5 } +
+        fadeIn(tween(240, delayMillis = 60))
+}
+private val tabExitTransitionWide: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
+    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+    val direction = if (forward) -1 else 1
+    slideOutVertically(tween(110, easing = EmphasizedAccelerate)) { full -> direction * full / 10 } +
+        fadeOut(tween(90))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RelayMainContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeClass) {
@@ -221,15 +237,18 @@ fun RelayMainContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeCl
             )
         )
     }
+    // 大屏（侧边导航）下切换动画为纵向，手机（底部导航）保持横向
+    val enter = if (widthSizeClass == WindowWidthSizeClass.Compact) tabEnterTransition else tabEnterTransitionWide
+    val exit = if (widthSizeClass == WindowWidthSizeClass.Compact) tabExitTransition else tabExitTransitionWide
     val navPages: @Composable (PaddingValues) -> Unit = { padding ->
         NavHost(
             navController = navController,
             startDestination = "devices",
             modifier = Modifier.padding(padding),
-            enterTransition = tabEnterTransition,
-            exitTransition = tabExitTransition,
-            popEnterTransition = tabEnterTransition,
-            popExitTransition = tabExitTransition
+            enterTransition = enter,
+            exitTransition = exit,
+            popEnterTransition = enter,
+            popExitTransition = exit
         ) {
             composable("devices") { DevicesScreen(manager, widthSizeClass != WindowWidthSizeClass.Compact) }
             composable("apps") { AppsScreen() }
@@ -854,6 +873,7 @@ private fun SettingsScreen() {
     val logScroll = rememberScrollState()
 
     LifecycleResumeEffect(Unit) {
+        EventLog.verboseEnabled = repo.verboseLogEnabled
         val listener: (String) -> Unit = { line -> handler.post { logs += line } }
         EventLog.observe(listener)
         onPauseOrDispose { EventLog.remove(listener); handler.removeCallbacksAndMessages(null) }
@@ -932,6 +952,16 @@ private fun SettingsScreen() {
             repo.refreshAsNewEnabled = it
             toast(context, if (it) "内容刷新将弹出新通知" else "内容刷新将原地更新通知")
         }
+        SectionLabel("调试与日志")
+        var verboseLog by remember { mutableStateOf(repo.verboseLogEnabled) }
+        SettingSwitchCard(
+            "启用日志显示", "关闭后仅记录一般日志（错误、警告等），不记录连接、扫描等全部详细事件", verboseLog
+        ) {
+            verboseLog = it
+            repo.verboseLogEnabled = it
+            EventLog.verboseEnabled = it
+            toast(context, if (it) "详细日志已开启" else "仅显示一般日志")
+        }
         val relayManager = remember { BleRelayManager.get(context) }
         RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
             Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -940,7 +970,6 @@ private fun SettingsScreen() {
                 TextButton(onClick = { sendTestNotification(context, relayManager, repo) }) { Text("发送测试通知") }
             }
         }
-        SectionLabel("诊断日志")
         SelectionContainer {
             Box(
                 Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(24.dp))
