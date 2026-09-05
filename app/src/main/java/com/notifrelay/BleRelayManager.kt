@@ -270,6 +270,8 @@ class BleRelayManager private constructor(context: Context) {
     private val remoteAppIcons = LruCache<String, Bitmap>(64)
     // 接收端重复通知优化：1 秒窗口内同设备同 key 同内容的通知仅弹出第一条
     private val receivedFingerprints = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Long>>()
+    // 通知内容代数：同 key 通知内容刷新后视为一条新通知，代数递增使 id 变化、再次弹出
+    private val notifGenerations = HashMap<String, Pair<Int, Int>>()
     private val remoteNotifications = object : LinkedHashMap<Int, RemoteNotificationData>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, RemoteNotificationData>?): Boolean = size > 64
     }
@@ -1461,8 +1463,23 @@ class BleRelayManager private constructor(context: Context) {
         ongoing: Boolean,
         otpCode: String? = null
     ) {
-        // 用通知 key 的 hash 作为稳定 id：同一条通知的更新会覆盖同一条，而不是堆积新通知
-        val id = if (key.isNotEmpty()) key.hashCode() else notifId++
+        // 内容刷新检测：同 key 但内容变化 → 代数 +1，id 变化后以新通知形式再次弹出；
+        // 内容未变 → 同 id 原地覆盖
+        val contentFp = listOf(device, pkg, app, title, text).joinToString("|").hashCode()
+        val generation = if (key.isEmpty()) 0 else {
+            val genKey = "$senderId|$key"
+            synchronized(notifGenerations) {
+                val prev = notifGenerations[genKey]
+                val newGen = when {
+                    prev == null -> 0
+                    prev.first != contentFp -> prev.second + 1
+                    else -> prev.second
+                }
+                notifGenerations[genKey] = contentFp to newGen
+                newGen
+            }
+        }
+        val id = if (key.isNotEmpty()) "$key#$generation".hashCode() else notifId++
         val data = RemoteNotificationData(id, device, senderId, pkg, app, title, text, ongoing, otpCode)
         synchronized(remoteNotifications) { remoteNotifications[id] = data }
         renderLocalNotification(data, logPosted = true)
