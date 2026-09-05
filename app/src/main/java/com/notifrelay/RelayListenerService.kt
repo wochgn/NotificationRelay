@@ -35,10 +35,9 @@ class RelayListenerService : NotificationListenerService() {
         }
     }
 
-    // 同一通知以相同内容高频重发（如常驻通知循环刷新）时做最小节流；
-    // 状态刷新（内容变化或超过间隔）都会重新发送流转通知。
+    // 重复内容节流：「优化流转重复通知」开启时 1 秒窗口只流转第一条；
+    // 关闭时保留 200ms 最小间隔，防止极端应用循环刷通知打爆 BLE 队列。
     private val lastPosted = ConcurrentHashMap<String, Pair<Int, Long>>()
-    private val sameContentIntervalMs = 500L
 
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -74,7 +73,11 @@ class RelayListenerService : NotificationListenerService() {
         // 应用过滤：开启「仅转发选中」后，只转发白名单中的应用
         if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
 
-        val deviceName = SettingsRepository.get(this).resolvedDeviceName()
+        val settings = SettingsRepository.get(this)
+        // 常驻/不可清除通知（音乐播放、下载进度等）按用户开关决定是否流转
+        if (!settings.relayOngoingEnabled && !sbn.isClearable) return
+
+        val deviceName = settings.resolvedDeviceName()
         val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
         val fingerprint = try {
             JSONObject(json).apply { remove("time") }.toString().hashCode()
@@ -82,8 +85,9 @@ class RelayListenerService : NotificationListenerService() {
             json.hashCode()
         }
         val now = SystemClock.elapsedRealtime()
+        val intervalMs = if (settings.dedupeRepeatEnabled) 1_000L else 200L
         val prev = lastPosted[sbn.key]
-        if (prev != null && prev.first == fingerprint && now - prev.second < sameContentIntervalMs) return
+        if (prev != null && prev.first == fingerprint && now - prev.second < intervalMs) return
         lastPosted[sbn.key] = fingerprint to now
         EventLog.add("本机通知 [${sbn.packageName}]")
         BleRelayManager.get(this).apply {

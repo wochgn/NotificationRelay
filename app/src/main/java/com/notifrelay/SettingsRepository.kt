@@ -31,6 +31,8 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_WHITELIST = "whitelist"
         private const val KEY_FOREGROUND_ENABLED = "foreground_enabled"
         private const val KEY_OTP_LIVE_ENABLED = "otp_live_enabled"
+        private const val KEY_RELAY_ONGOING_ENABLED = "relay_ongoing_enabled"
+        private const val KEY_DEDUPE_REPEAT_ENABLED = "dedupe_repeat_enabled"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
@@ -57,6 +59,16 @@ class SettingsRepository private constructor(context: Context) {
     var otpLiveEnabled: Boolean
         get() = prefs.getBoolean(KEY_OTP_LIVE_ENABLED, true)
         set(v) = prefs.edit().putBoolean(KEY_OTP_LIVE_ENABLED, v).apply()
+
+    // 是否流转常驻/不可清除通知（音乐播放、下载进度等），默认开启
+    var relayOngoingEnabled: Boolean
+        get() = prefs.getBoolean(KEY_RELAY_ONGOING_ENABLED, true)
+        set(v) = prefs.edit().putBoolean(KEY_RELAY_ONGOING_ENABLED, v).apply()
+
+    // 优化流转重复通知：1 秒内同一应用重复发布相同内容仅流转第一条，默认关闭
+    var dedupeRepeatEnabled: Boolean
+        get() = prefs.getBoolean(KEY_DEDUPE_REPEAT_ENABLED, false)
+        set(v) = prefs.edit().putBoolean(KEY_DEDUPE_REPEAT_ENABLED, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean

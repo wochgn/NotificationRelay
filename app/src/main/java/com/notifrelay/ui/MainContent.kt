@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -426,8 +427,10 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
         ) {
             if (hasStatusNotice) StatusCard(state)
             ScanButton(state, manager)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // IntrinsicSize.Min：左右两栏取较高者高度，连接卡撑满剩余空间，
+            // 使其高度与右栏两张已配对卡片（含间隙）一致
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "已连接设备（${state.peers.size}）",
                         style = MaterialTheme.typography.labelLarge,
@@ -445,7 +448,8 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
                                 manualDisconnect = true
                                 manager.disconnect(peer.deviceId)
                                 refresh++
-                            }
+                            },
+                            modifier = Modifier.weight(1f)
                         )
                     }
                     if (state.peers.isEmpty()) {
@@ -608,9 +612,10 @@ private fun ConnectedCard(
     peer: PeerState,
     onFind: () -> Unit,
     onUnpair: () -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    RelayCard(container = MaterialTheme.colorScheme.primaryContainer) {
+    RelayCard(container = MaterialTheme.colorScheme.primaryContainer, modifier = modifier) {
         Spacer(Modifier.height(8.dp))
         Text(peer.name.ifBlank { "未知设备" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
@@ -895,6 +900,22 @@ private fun SettingsScreen() {
             repo.otpLiveEnabled = it
             toast(context, if (it) "验证码实时通知已开启" else "验证码实时通知已关闭，将使用普通通知")
         }
+        var relayOngoing by remember { mutableStateOf(repo.relayOngoingEnabled) }
+        SettingSwitchCard(
+            "流转常驻通知", "关闭后不再转发常驻/不可清除类通知（如音乐播放、下载进度）", relayOngoing
+        ) {
+            relayOngoing = it
+            repo.relayOngoingEnabled = it
+            toast(context, if (it) "已流转常驻通知" else "已停止流转常驻通知")
+        }
+        var dedupeRepeat by remember { mutableStateOf(repo.dedupeRepeatEnabled) }
+        SettingSwitchCard(
+            "优化流转重复通知", "1 秒内同一应用重复发布相同内容的通知时，仅流转第一条；超过 1 秒仍正常流转", dedupeRepeat
+        ) {
+            dedupeRepeat = it
+            repo.dedupeRepeatEnabled = it
+            toast(context, if (it) "重复通知优化已开启" else "重复通知优化已关闭")
+        }
         val relayManager = remember { BleRelayManager.get(context) }
         RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
             Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -940,11 +961,15 @@ private fun SettingSwitchCard(title: String, description: String, checked: Boole
 }
 
 @Composable
-private fun RelayCard(container: androidx.compose.ui.graphics.Color, content: @Composable ColumnScope.() -> Unit) {
+private fun RelayCard(
+    container: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = container),
         shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth()
     ) { Column(Modifier.fillMaxWidth().padding(20.dp), content = content) }
 }
 
