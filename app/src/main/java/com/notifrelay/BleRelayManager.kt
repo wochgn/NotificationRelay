@@ -1395,7 +1395,9 @@ class BleRelayManager private constructor(context: Context) {
                         return
                     }
                     val key = obj.optString("key", "")
-                    // 「优化流转重复通知」在接收端执行：1 秒内同设备同 key 同内容仅弹第一条
+                    // 「优化流转重复通知」在接收端执行：1 秒内同一应用重复发布相同内容仅弹第一条。
+                    // 去重维度是「设备+应用+内容」，不含通知 key —— 应用重复发相同内容时
+                    // 往往生成新 key（新 post 而非原地更新），按 key 去重会完全失效。
                     if (SettingsRepository.get(appContext).dedupeRepeatEnabled) {
                         val fingerprint = listOf(
                             obj.optString("device", ""),
@@ -1405,13 +1407,12 @@ class BleRelayManager private constructor(context: Context) {
                             obj.optString("text", "")
                         ).joinToString("|").hashCode()
                         val now = android.os.SystemClock.elapsedRealtime()
-                        val dedupeKey = "${session.remoteDeviceId}|$key"
-                        val prev = receivedFingerprints[dedupeKey]
+                        val prev = receivedFingerprints[session.remoteDeviceId]
                         if (prev != null && prev.first == fingerprint && now - prev.second < 1_000L) {
                             log("1 秒内重复通知，已拦截：${obj.optString("app", "")}")
                             return
                         }
-                        receivedFingerprints[dedupeKey] = fingerprint to now
+                        receivedFingerprints[session.remoteDeviceId] = fingerprint to now
                     }
                     log("收到远程通知")
                     val device = obj.optString("device", "")
