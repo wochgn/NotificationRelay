@@ -926,7 +926,7 @@ private fun SettingsScreen() {
         }
         var refreshAsNew by remember { mutableStateOf(repo.refreshAsNewEnabled) }
         SettingSwitchCard(
-            "通知提示增强", "开启后，原通知内容刷新时会视为一条新通知进行流转", refreshAsNew
+            "通知提示增强", "开启后，当通知内容刷新时，软件会将其视为一条新通知进行转发", refreshAsNew
         ) {
             refreshAsNew = it
             repo.refreshAsNewEnabled = it
