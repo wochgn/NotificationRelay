@@ -35,6 +35,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_DEDUPE_REPEAT_ENABLED = "dedupe_repeat_enabled"
         private const val KEY_REFRESH_AS_NEW_ENABLED = "refresh_as_new_enabled"
         private const val KEY_VERBOSE_LOG_ENABLED = "verbose_log_enabled"
+        private const val KEY_UI_STYLE = "ui_style"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
@@ -82,6 +83,11 @@ class SettingsRepository private constructor(context: Context) {
     var verboseLogEnabled: Boolean
         get() = prefs.getBoolean(KEY_VERBOSE_LOG_ENABLED, true)
         set(v) = prefs.edit().putBoolean(KEY_VERBOSE_LOG_ENABLED, v).apply()
+
+    // 界面设计风格：MD3（Material 3）或 MIUIX（HyperOS 风格）
+    var uiStyle: String
+        get() = prefs.getString(KEY_UI_STYLE, "md3") ?: "md3"
+        set(v) = prefs.edit().putString(KEY_UI_STYLE, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean
