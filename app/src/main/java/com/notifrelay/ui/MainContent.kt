@@ -60,6 +60,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -228,7 +229,7 @@ fun RelayMainContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeCl
             popEnterTransition = tabEnterTransition,
             popExitTransition = tabExitTransition
         ) {
-            composable("devices") { DevicesScreen(manager) }
+            composable("devices") { DevicesScreen(manager, widthSizeClass != WindowWidthSizeClass.Compact) }
             composable("apps") { AppsScreen() }
             composable("settings") { SettingsScreen() }
         }
@@ -304,7 +305,7 @@ private data class DeviceRowUi(
 )
 
 @Composable
-private fun DevicesScreen(manager: BleRelayManager) {
+private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -413,26 +414,92 @@ private fun DevicesScreen(manager: BleRelayManager) {
         )
     }
 
+    val savedRows = rows.filter { it.saved }
+    val nearbyRows = rows.filterNot { it.saved }
+    val hasStatusNotice = !state.bluetoothEnabled || !state.listenerEnabled || !state.foregroundEnabled
+
+    if (wideLayout) {
+        // 大屏：已连接设备与已配对设备左右两栏展示
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (hasStatusNotice) StatusCard(state)
+            ScanButton(state, manager)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "已连接设备（${state.peers.size}）",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    state.peers.forEach { peer ->
+                        ConnectedCard(
+                            peer = peer,
+                            onFind = {
+                                if (peer.finding) manager.cancelFindRemote(peer.deviceId)
+                                else if (manager.findRemoteDevice(peer.deviceId)) toast(context, "已让远端设备响铃")
+                            },
+                            onUnpair = { peer.deviceId.takeIf(String::isNotBlank)?.let { deleteId = it } },
+                            onDisconnect = {
+                                manualDisconnect = true
+                                manager.disconnect(peer.deviceId)
+                                refresh++
+                            }
+                        )
+                    }
+                    if (state.peers.isEmpty()) {
+                        Text(
+                            "暂无已连接设备",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 20.dp)
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "已配对设备",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 20.dp)
+                    )
+                    savedRows.forEach { row ->
+                        DeviceRow(row, { connectDevice(context, manager, row) }, { deleteId = row.id })
+                    }
+                    if (nearbyRows.isNotEmpty()) {
+                        Text(
+                            "附近设备",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 20.dp)
+                        )
+                        nearbyRows.forEach { row ->
+                            DeviceRow(row, { connectDevice(context, manager, row) }, {})
+                        }
+                    }
+                    if (rows.isEmpty() && state.peers.isEmpty()) {
+                        Text(
+                            if (state.discovery.scanning) "正在搜索附近设备…" else "未发现设备，点上方「扫描设备」",
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 20.dp)
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (!state.bluetoothEnabled || !state.listenerEnabled || !state.foregroundEnabled) {
+        if (hasStatusNotice) {
             item {
                 StatusCard(state)
             }
         }
         item {
-            Button(
-                onClick = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
-                enabled = !state.discovery.scanning,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Outlined.Search, null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (state.discovery.scanning) "扫描中…" else "扫描设备")
-            }
+            ScanButton(state, manager)
         }
         if (state.peers.isNotEmpty()) {
             item {
@@ -458,8 +525,6 @@ private fun DevicesScreen(manager: BleRelayManager) {
                 )
             }
         }
-        val savedRows = rows.filter { it.saved }
-        val nearbyRows = rows.filterNot { it.saved }
         if (savedRows.isNotEmpty()) {
             item {
                 Text(
@@ -490,6 +555,19 @@ private fun DevicesScreen(manager: BleRelayManager) {
                 style = MaterialTheme.typography.labelLarge
             )
         }
+    }
+}
+
+@Composable
+private fun ScanButton(state: DeviceUiState, manager: BleRelayManager) {
+    Button(
+        onClick = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
+        enabled = !state.discovery.scanning,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(Icons.Outlined.Search, null)
+        Spacer(Modifier.width(8.dp))
+        Text(if (state.discovery.scanning) "扫描中…" else "扫描设备")
     }
 }
 
@@ -569,8 +647,11 @@ private fun CompactActionButton(icon: ImageVector, text: String, modifier: Modif
 private fun DeviceRow(row: DeviceRowUi, onClick: () -> Unit, onLongClick: () -> Unit) {
     ListItem(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         headlineContent = { Text(row.name, fontWeight = FontWeight.Bold) },
         supportingContent = { if (row.subtitle.isNotBlank()) Text(row.subtitle) },
         leadingContent = {
