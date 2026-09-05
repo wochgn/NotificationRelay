@@ -15,11 +15,14 @@ object Constants {
     // 标准 CCCD 描述符 UUID（客户端用它订阅 notify/indicate）
     val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-    // 本地通知 channel id
-    const val CHANNEL_ID = "relay"              // 普通流转通知
-    const val CHANNEL_ID_ONGOING = "relay_ongoing"  // 常驻/不可清除流转通知（默认静默）
+    // 本地通知 channel id（v2：带默认铃声/震动/横幅；旧 channel 设置创建后不可改，迁移新 id）
+    const val CHANNEL_ID = "relay_v2"              // 普通流转通知
+    const val CHANNEL_ID_ONGOING = "relay_ongoing_v2"  // 常驻/不可清除流转通知（默认静默）
     const val CHANNEL_ID_FOREGROUND = "relay_fg"    // 前台服务常驻通知（连接状态+电量）
     const val CHANNEL_ID_FIND_DEVICE = "relay_find" // 查找设备响铃控制通知
+
+    // v1 旧通道，创建新通道时清理
+    val LEGACY_CHANNEL_IDS = listOf("relay", "relay_ongoing")
 
     const val NOTIF_ID_FOREGROUND = 1  // 前台服务通知固定 id
     const val NOTIF_ID_FIND_DEVICE = 2 // 查找设备通知固定 id

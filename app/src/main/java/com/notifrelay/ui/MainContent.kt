@@ -7,16 +7,30 @@ import android.content.Intent
 import android.graphics.drawable.Drawable
 import android.os.Handler
 import android.os.Looper
+import android.util.LruCache
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,13 +63,17 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -64,16 +82,20 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
@@ -90,6 +112,7 @@ import com.notifrelay.DeviceInfo
 import com.notifrelay.DiscoveryState
 import com.notifrelay.EventLog
 import com.notifrelay.ForegroundServiceController
+import com.notifrelay.PeerState
 import com.notifrelay.R
 import com.notifrelay.RelayState
 import com.notifrelay.SavedDevice
@@ -106,9 +129,30 @@ private val destinations = listOf(
     Destination("settings", "设置", Icons.Outlined.Settings)
 )
 
+private fun routeIndex(route: String?): Int =
+    destinations.indexOfFirst { it.route == route }.coerceAtLeast(0)
+
+// M3 Expressive 强调曲线：减速段柔入，加速段快出，过渡错峰进行，
+// 避免新旧两个页面同时做全屏动画导致掉帧。
+private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+
+private val tabEnterTransition: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
+    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+    val direction = if (forward) 1 else -1
+    slideInHorizontally(tween(340, delayMillis = 60, easing = EmphasizedDecelerate)) { full -> direction * full / 5 } +
+        fadeIn(tween(240, delayMillis = 60))
+}
+private val tabExitTransition: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
+    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+    val direction = if (forward) -1 else 1
+    slideOutHorizontally(tween(110, easing = EmphasizedAccelerate)) { full -> direction * full / 10 } +
+        fadeOut(tween(90))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RelayMainContent(manager: BleRelayManager) {
+fun RelayMainContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeClass) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val currentEntry by navController.currentBackStackEntryAsState()
@@ -126,63 +170,124 @@ fun RelayMainContent(manager: BleRelayManager) {
     @Suppress("UNUSED_EXPRESSION") pairingVersion
     BackHandler { (context as? Activity)?.finish() }
 
-    if (manager.connected && manager.needsLocalPairConfirmation()) {
+    // 每次状态刷新都重新取会话快照，多台设备时取第一台等待确认的
+    @Suppress("UNUSED_EXPRESSION") pairingVersion
+    val relayState = manager.currentState()
+    val pendingPair = relayState.peers.firstOrNull { it.needsConfirm }
+    if (pendingPair != null) {
         AlertDialog(
             onDismissRequest = {},
             title = { Text("确认配对设备") },
             text = {
                 Text(
-                    "「${manager.remoteName.ifBlank { "附近设备" }}」请求与你建立通知流转连接。\n\n" +
+                    "「${pendingPair.name.ifBlank { "附近设备" }}」请求与你建立通知流转连接。\n\n" +
                         "请先核对两台设备上显示的设备名称，确认名称一致且确实是你要连接的设备。"
                 )
             },
-            confirmButton = { TextButton(onClick = manager::acceptPairing) { Text("确认配对") } },
-            dismissButton = { TextButton(onClick = manager::rejectPairing) { Text("拒绝") } }
+            confirmButton = {
+                TextButton(onClick = { manager.acceptPairing(pendingPair.deviceId) }) { Text("确认配对") }
+            },
+            dismissButton = {
+                TextButton(onClick = { manager.rejectPairing(pendingPair.deviceId) }) { Text("拒绝") }
+            }
         )
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(destination.title) }) },
-        bottomBar = {
-            NavigationBar {
-                destinations.forEach { item ->
-                    NavigationBarItem(
-                        selected = route == item.route,
-                        onClick = {
-                            navController.navigate(item.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
-                                launchSingleTop = true
-                                restoreState = false
-                            }
-                        },
-                        icon = { Icon(item.icon, null) },
-                        label = { Text(item.title) }
-                    )
-                }
-            }
+    fun navigateTo(item: Destination) {
+        navController.navigate(item.route) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
         }
-    ) { padding ->
+    }
+
+    // 标题：加粗、较默认增大（44sp 缩小 20% → 35sp），顶栏高度同步调整
+    val topBar: @Composable () -> Unit = {
+        TopAppBar(
+            title = {
+                Text(
+                    destination.title,
+                    fontSize = 35.sp,
+                    lineHeight = 40.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            expandedHeight = TopAppBarDefaults.TopAppBarExpandedHeight * 1.6f,
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            )
+        )
+    }
+    val navPages: @Composable (PaddingValues) -> Unit = { padding ->
         NavHost(
             navController = navController,
             startDestination = "devices",
-            modifier = Modifier.padding(padding)
+            modifier = Modifier.padding(padding),
+            enterTransition = tabEnterTransition,
+            exitTransition = tabExitTransition,
+            popEnterTransition = tabEnterTransition,
+            popExitTransition = tabExitTransition
         ) {
             composable("devices") { DevicesScreen(manager) }
             composable("apps") { AppsScreen() }
             composable("settings") { SettingsScreen() }
         }
     }
+
+    if (widthSizeClass == WindowWidthSizeClass.Compact) {
+        // 手机竖屏：底部导航栏
+        Scaffold(
+            topBar = topBar,
+            bottomBar = {
+                NavigationBar {
+                    destinations.forEach { item ->
+                        NavigationBarItem(
+                            selected = route == item.route,
+                            onClick = { navigateTo(item) },
+                            icon = { Icon(item.icon, null) },
+                            label = { Text(item.title) }
+                        )
+                    }
+                }
+            }
+        ) { padding -> navPages(padding) }
+    } else {
+        // 平板/横屏/大屏：左侧导航栏（较默认更宽），内容区占满剩余空间
+        Row(Modifier.fillMaxSize()) {
+            AppNavigationRail(
+                currentRoute = route,
+                railWidth = if (widthSizeClass == WindowWidthSizeClass.Expanded) 112.dp else 96.dp
+            ) { navigateTo(it) }
+            Scaffold(topBar = topBar, modifier = Modifier.weight(1f)) { padding -> navPages(padding) }
+        }
+    }
+}
+
+@Composable
+private fun AppNavigationRail(currentRoute: String, railWidth: androidx.compose.ui.unit.Dp, onSelect: (Destination) -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxHeight().width(railWidth)
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
+        ) {
+            destinations.forEach { item ->
+                NavigationRailItem(
+                    selected = currentRoute == item.route,
+                    onClick = { onSelect(item) },
+                    icon = { Icon(item.icon, null) },
+                    label = { Text(item.title) }
+                )
+            }
+        }
+    }
 }
 
 private data class DeviceUiState(
-    val connected: Boolean,
-    val remoteName: String,
-    val remoteAndroid: String,
-    val remoteBattery: Int,
-    val remoteDeviceId: String,
-    val pairingRequired: Boolean,
-    val paired: Boolean,
-    val finding: Boolean,
+    val peers: List<PeerState>,
     val bluetoothEnabled: Boolean,
     val listenerEnabled: Boolean,
     val foregroundEnabled: Boolean,
@@ -212,12 +317,13 @@ private fun DevicesScreen(manager: BleRelayManager) {
 
     fun snapshot(): DeviceUiState {
         val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        val state = manager.currentState()
         return DeviceUiState(
-            manager.visibleConnected(), manager.remoteName, manager.remoteAndroid,
-            manager.remoteBattery, manager.remoteDeviceId, manager.pairingRequired,
-            manager.paired, manager.findingRemote, bluetooth.adapter?.isEnabled == true,
+            state.peers,
+            bluetooth.adapter?.isEnabled == true,
             NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName),
-            repo.foregroundEnabled, discovery
+            repo.foregroundEnabled,
+            discovery
         )
     }
 
@@ -232,7 +338,7 @@ private fun DevicesScreen(manager: BleRelayManager) {
                     if (manualDisconnect || userDisconnect) {
                         handler.postDelayed({
                             if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-                                manager.role == BleRelayManager.Role.NONE
+                                !manager.isConnecting()
                             ) manager.startDiscovery(autoConnectSaved = false)
                         }, 900L)
                     } else {
@@ -252,9 +358,8 @@ private fun DevicesScreen(manager: BleRelayManager) {
             wasConnected = manager.visibleConnected()
             manager.observeState(stateListener)
             manager.observeDiscovery(discoveryListener)
-            if (!manager.visibleConnected() && manager.role == BleRelayManager.Role.NONE && !manager.isConnecting()) {
-                manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused())
-            }
+            // 幂等启动：同时保证本机可被发现（多台设备都能连进来）与扫描发现其他设备
+            manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused())
             refresh++
         }
         fun stopObserving() {
@@ -262,7 +367,8 @@ private fun DevicesScreen(manager: BleRelayManager) {
             registered = false
             manager.removeState(stateListener)
             manager.removeDiscovery(discoveryListener)
-            if (!repo.foregroundEnabled) manager.stopDiscovery()
+            // 离开设备页即停止扫描（保留广播，其他设备仍能发现并连入）
+            manager.stopDeviceScan()
         }
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
@@ -282,11 +388,15 @@ private fun DevicesScreen(manager: BleRelayManager) {
 
     @Suppress("UNUSED_EXPRESSION") refresh
     val state = snapshot()
-    val rows = buildDeviceRows(repo.savedDevices(), state.discovery, state.remoteDeviceId)
+    val connectedKeys = state.peers
+        .flatMap { listOf(it.deviceId, it.address) }
+        .filter(String::isNotBlank)
+        .toSet()
+    val rows = buildDeviceRows(repo.savedDevices(), state.discovery, connectedKeys)
 
     deleteId?.let { id ->
         val name = repo.findByDeviceId(id)?.name ?: id
-        val connected = state.connected && state.remoteDeviceId == id
+        val connected = state.peers.any { it.deviceId == id }
         AlertDialog(
             onDismissRequest = { deleteId = null },
             title = { Text(if (connected) "取消配对设备" else "删除已配对设备") },
@@ -305,7 +415,7 @@ private fun DevicesScreen(manager: BleRelayManager) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (!state.bluetoothEnabled || !state.listenerEnabled || !state.foregroundEnabled) {
@@ -313,117 +423,144 @@ private fun DevicesScreen(manager: BleRelayManager) {
                 StatusCard(state)
             }
         }
-        if (state.connected) {
+        item {
+            Button(
+                onClick = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
+                enabled = !state.discovery.scanning,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Outlined.Search, null)
+                Spacer(Modifier.width(8.dp))
+                Text(if (state.discovery.scanning) "扫描中…" else "扫描设备")
+            }
+        }
+        if (state.peers.isNotEmpty()) {
             item {
-                ConnectedCard(
-                    state = state,
-                    onFind = {
-                        if (manager.findingRemote) manager.cancelFindRemote()
-                        else if (manager.findRemoteDevice()) toast(context, "已让远端设备响铃")
-                    },
-                    onUnpair = { state.remoteDeviceId.takeIf(String::isNotBlank)?.let { deleteId = it } },
-                    onDisconnect = { manualDisconnect = true; manager.disconnect(); refresh++ }
-                )
-            }
-            item {
-                TestNotificationCard {
-                    sendTestNotification(context, manager, repo)
-                }
-            }
-        } else {
-            item {
-                Button(
-                    onClick = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
-                    enabled = !state.discovery.scanning,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Outlined.Search, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (state.discovery.scanning) "扫描中…" else "扫描设备")
-                }
-            }
-            if (state.discovery.scanning) item { Text("正在搜索附近设备…", style = MaterialTheme.typography.bodySmall) }
-            val savedRows = rows.filter { it.saved }
-            val nearbyRows = rows.filterNot { it.saved }
-            if (savedRows.isNotEmpty()) item { Text("已配对设备", style = MaterialTheme.typography.labelLarge) }
-            items(savedRows, key = { "saved-${it.id}" }) { row ->
-                DeviceRow(row, { connectDevice(context, manager, row) }, { deleteId = row.id })
-            }
-            if (nearbyRows.isNotEmpty()) item { Text("附近设备", style = MaterialTheme.typography.labelLarge) }
-            items(nearbyRows, key = { "nearby-${it.id}-${it.address}" }) { row ->
-                DeviceRow(row, { connectDevice(context, manager, row) }, {})
-            }
-            if (rows.isEmpty()) item {
                 Text(
-                    if (state.discovery.scanning) "正在搜索附近设备…" else "未发现设备，点上方「扫描设备」",
-                    style = MaterialTheme.typography.labelLarge
+                    "已连接设备（${state.peers.size}）",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 20.dp)
                 )
             }
+            items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
+                ConnectedCard(
+                    peer = peer,
+                    onFind = {
+                        if (peer.finding) manager.cancelFindRemote(peer.deviceId)
+                        else if (manager.findRemoteDevice(peer.deviceId)) toast(context, "已让远端设备响铃")
+                    },
+                    onUnpair = { peer.deviceId.takeIf(String::isNotBlank)?.let { deleteId = it } },
+                    onDisconnect = {
+                        manualDisconnect = true
+                        manager.disconnect(peer.deviceId)
+                        refresh++
+                    }
+                )
+            }
+        }
+        val savedRows = rows.filter { it.saved }
+        val nearbyRows = rows.filterNot { it.saved }
+        if (savedRows.isNotEmpty()) {
+            item {
+                Text(
+                    "已配对设备",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+            }
+        }
+        items(savedRows, key = { "saved-${it.id}" }) { row ->
+            DeviceRow(row, { connectDevice(context, manager, row) }, { deleteId = row.id })
+        }
+        if (nearbyRows.isNotEmpty()) {
+            item {
+                Text(
+                    "附近设备",
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+            }
+        }
+        items(nearbyRows, key = { "nearby-${it.id}-${it.address}" }) { row ->
+            DeviceRow(row, { connectDevice(context, manager, row) }, {})
+        }
+        if (rows.isEmpty() && state.peers.isEmpty()) item {
+            Text(
+                if (state.discovery.scanning) "正在搜索附近设备…" else "未发现设备，点上方「扫描设备」",
+                style = MaterialTheme.typography.labelLarge
+            )
         }
     }
 }
 
+// 设备状态提示卡：低饱和度红底；深色模式用暗红避免刺眼
 @Composable
 private fun StatusCard(state: DeviceUiState) {
-    RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
-        Text("设备状态", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    val dark = isSystemInDarkTheme()
+    val bg = if (dark) Color(0xFF4E2C2C) else Color(0xFFF2C2C2)
+    // 标题与“已开启”用纯色：浅色主题纯黑、深色主题纯白
+    val titleColor = if (dark) Color.White else Color.Black
+    val labelColor = if (dark) Color(0xFFD8C2C2) else Color(0xFF5A5A5A)
+    val okColor = if (dark) Color.White else Color.Black
+    // 深色模式下的“未开启”用饱和度更高的红
+    val offColor = if (dark) Color(0xFFFF5252) else Color(0xFFB3261E)
+    RelayCard(container = bg) {
+        Text("设备状态", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = titleColor)
         Spacer(Modifier.height(12.dp))
-        StatusLine("蓝牙", state.bluetoothEnabled)
-        StatusLine("通知监听", state.listenerEnabled)
-        StatusLine("常驻后台", state.foregroundEnabled)
+        StatusLine("蓝牙", state.bluetoothEnabled, labelColor, okColor, offColor)
+        StatusLine("通知监听", state.listenerEnabled, labelColor, okColor, offColor)
+        StatusLine("常驻后台", state.foregroundEnabled, labelColor, okColor, offColor)
     }
 }
 
 @Composable
-private fun StatusLine(label: String, enabled: Boolean) {
+private fun StatusLine(label: String, enabled: Boolean, labelColor: Color, okColor: Color, offColor: Color) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label)
-        Text(if (enabled) "已开启" else "未开启", fontWeight = FontWeight.Bold)
+        Text(label, color = labelColor)
+        Text(
+            if (enabled) "已开启" else "未开启",
+            fontWeight = FontWeight.Bold,
+            color = if (enabled) okColor else offColor
+        )
     }
 }
 
 @Composable
 private fun ConnectedCard(
-    state: DeviceUiState,
+    peer: PeerState,
     onFind: () -> Unit,
     onUnpair: () -> Unit,
     onDisconnect: () -> Unit
 ) {
     RelayCard(container = MaterialTheme.colorScheme.primaryContainer) {
-        Text("已连接设备", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text(state.remoteName.ifBlank { "未知设备" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(peer.name.ifBlank { "未知设备" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text(
-            if (state.pairingRequired) "等待配对确认" else listOf(
-                state.remoteAndroid.ifBlank { "版本未知" },
-                if (state.remoteBattery >= 0) "电量 ${state.remoteBattery}%" else "电量未知"
+            if (peer.needsConfirm) "等待配对确认" else listOf(
+                peer.android.ifBlank { "版本未知" },
+                if (peer.battery >= 0) "电量 ${peer.battery}%" else "电量未知"
             ).joinToString(" · "),
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.height(12.dp))
-        ActionButton(Icons.Outlined.Search, if (state.finding) "取消查找" else "查找设备", onFind)
-        ActionButton(Icons.Outlined.DeleteOutline, "取消配对", onUnpair)
-        ActionButton(Icons.Outlined.LinkOff, "断开连接", onDisconnect)
-    }
-}
-
-@Composable
-private fun ActionButton(icon: ImageVector, text: String, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Icon(icon, null)
-        Spacer(Modifier.width(8.dp))
-        Text(text)
-    }
-}
-
-@Composable
-private fun TestNotificationCard(onClick: () -> Unit) {
-    RelayCard(container = MaterialTheme.colorScheme.tertiaryContainer) {
-        Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("通过当前蓝牙连接向远端发送一条测试通知", style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onClick) { Text("发送测试通知") }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CompactActionButton(Icons.Outlined.Search, if (peer.finding) "取消查找" else "查找设备", Modifier.weight(1f), onFind)
+            CompactActionButton(Icons.Outlined.DeleteOutline, "取消配对", Modifier.weight(1f), onUnpair)
+            CompactActionButton(Icons.Outlined.LinkOff, "断开连接", Modifier.weight(1f), onDisconnect)
         }
+    }
+}
+
+@Composable
+private fun CompactActionButton(icon: ImageVector, text: String, modifier: Modifier, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 4.dp)
+    ) {
+        Icon(icon, null, Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(text, fontSize = 12.sp, maxLines = 1)
     }
 }
 
@@ -446,30 +583,34 @@ private fun DeviceRow(row: DeviceRowUi, onClick: () -> Unit, onLongClick: () -> 
     )
 }
 
-private fun buildDeviceRows(saved: List<SavedDevice>, discovery: DiscoveryState, connectedId: String): List<DeviceRowUi> {
+private fun buildDeviceRows(saved: List<SavedDevice>, discovery: DiscoveryState, connectedKeys: Set<String>): List<DeviceRowUi> {
     val discoveredById = discovery.devices.filter { it.deviceId.isNotBlank() }.associateBy { it.deviceId }
     val savedIds = saved.map { it.deviceId }.toSet()
     val rows = saved.map { item ->
         val scan = discoveredById[item.deviceId]
+        val connected = item.deviceId in connectedKeys
         DeviceRowUi(
             item.deviceId,
             scan?.address.orEmpty(),
             item.name.ifBlank { scan?.address.orEmpty() },
-            if (item.deviceId == connectedId || scan != null) item.android.ifBlank { scan?.address.orEmpty() }
+            if (connected || scan != null) item.android.ifBlank { scan?.address.orEmpty() }
             else listOf(item.android, "点击自动查找并连接").filter(String::isNotBlank).joinToString(" · "),
-            item.deviceId == connectedId,
+            connected,
             true
         )
     }.toMutableList()
-    discovery.devices.filter { it.deviceId.isBlank() || it.deviceId !in savedIds }.forEach { scan ->
-        rows += DeviceRowUi(scan.deviceId, scan.address, scan.name.ifBlank { scan.address }, scan.address, scan.deviceId == connectedId, false)
+    discovery.devices.filter {
+        (it.deviceId.isBlank() || it.deviceId !in savedIds) &&
+            it.address !in connectedKeys && it.deviceId !in connectedKeys
+    }.forEach { scan ->
+        rows += DeviceRowUi(scan.deviceId, scan.address, scan.name.ifBlank { scan.address }, scan.address, false, false)
     }
     return rows
 }
 
 private fun sendTestNotification(context: Context, manager: BleRelayManager, repo: SettingsRepository) {
     if (!manager.visibleConnected()) return toast(context, "请先连接设备")
-    if (!manager.paired) return toast(context, "正在完成设备握手，请稍后再试")
+    if (!manager.hasPairedPeer()) return toast(context, "正在完成设备握手，请稍后再试")
     val now = System.currentTimeMillis()
     manager.sendToRemote(JSONObject().apply {
         put("type", "notif")
@@ -486,7 +627,7 @@ private fun sendTestNotification(context: Context, manager: BleRelayManager, rep
 }
 
 private fun connectDevice(context: Context, manager: BleRelayManager, row: DeviceRowUi) {
-    if (manager.visibleConnected() || row.connected) return
+    if (row.connected) return
     if (row.address.isNotBlank()) {
         toast(context, "正在连接「${row.name}」…")
         manager.connectTo(row.address)
@@ -498,18 +639,26 @@ private fun connectDevice(context: Context, manager: BleRelayManager, row: Devic
 
 data class AppInfo(val pkg: String, val label: String, val icon: Drawable?)
 
+// 应用列表与图标位图跨 tab 缓存：避免每次切页重新查询全部应用、
+// 重新解码图标（切页动画期间逐行解码图标是掉帧的主因）。
+@Volatile private var cachedApps: List<AppInfo>? = null
+private val appIconBitmaps = LruCache<String, ImageBitmap>(256)
+
 @Composable
 private fun AppsScreen() {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
-    var onlyWhitelist by remember { mutableStateOf(repo.onlyWhitelist) }
-    var query by remember { mutableStateOf("") }
-    var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
+    var onlyWhitelist by rememberSaveable { mutableStateOf(repo.onlyWhitelist) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var apps by remember { mutableStateOf(cachedApps.orEmpty()) }
+    var loading by remember { mutableStateOf(cachedApps == null) }
     var version by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) { loadApps(context.applicationContext) }
+        if (cachedApps == null) {
+            cachedApps = withContext(Dispatchers.IO) { loadApps(context.applicationContext) }
+        }
+        apps = cachedApps.orEmpty()
         loading = false
     }
     @Suppress("UNUSED_EXPRESSION") version
@@ -540,6 +689,7 @@ private fun AppsScreen() {
             label = { Text("搜索应用") },
             leadingIcon = { Icon(Icons.Outlined.Search, null) },
             singleLine = true,
+            shape = RoundedCornerShape(24.dp),
             modifier = Modifier.fillMaxWidth()
         )
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -569,12 +719,15 @@ private fun AppsScreen() {
 
 @Composable
 private fun AppRow(app: AppInfo, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    val bitmap = remember(app.icon) { app.icon?.toBitmap(48, 48)?.asImageBitmap() }
+    val bitmap = remember(app.pkg) {
+        appIconBitmaps.get(app.pkg)
+            ?: app.icon?.toBitmap(48, 48)?.asImageBitmap()?.also { appIconBitmaps.put(app.pkg, it) }
+    }
     ListItem(
         headlineContent = { Text(app.label) },
         supportingContent = { Text(app.pkg, style = MaterialTheme.typography.bodySmall) },
         leadingContent = {
-            if (bitmap != null) androidx.compose.foundation.Image(bitmap, null, Modifier.size(44.dp))
+            if (bitmap != null) Image(bitmap, null, Modifier.size(44.dp))
             else Icon(Icons.Outlined.Apps, null, Modifier.size(44.dp))
         },
         trailingContent = { Switch(checked = checked, onCheckedChange = onChecked) }
@@ -625,14 +778,18 @@ private fun SettingsScreen() {
                 onValueChange = { deviceName = it },
                 label = { Text("设备名称") },
                 singleLine = true,
+                shape = RoundedCornerShape(24.dp),
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
                 TextButton(onClick = {
                     repo.deviceName = null
                     deviceName = DeviceInfo.systemName(context)
                     toast(context, "已恢复为系统设备名")
-                }) { Text("恢复系统名") }
+                }) { Text("恢复默认") }
                 Button(onClick = {
                     val value = deviceName.trim()
                     if (value.isBlank()) toast(context, "设备名不能为空")
@@ -640,29 +797,36 @@ private fun SettingsScreen() {
                 }) { Text("保存名称") }
             }
         }
+        SectionLabel("后台管理")
         SettingSwitchCard(
-            "常驻后台", "保持连接并在状态栏显示远端状态", foreground,
-            MaterialTheme.colorScheme.secondaryContainer
+            "常驻后台", "保持连接并在状态栏显示各设备状态", foreground
         ) {
             foreground = it
             repo.foregroundEnabled = it
             if (it) ForegroundServiceController.start(context) else ForegroundServiceController.stop(context)
             toast(context, if (it) "常驻后台已开启" else "常驻后台已关闭")
         }
+        SectionLabel("通知增强")
         SettingSwitchCard(
-            "验证码实时通知", "Android 16+ 使用实时通知显示验证码，其他情况回退为普通通知", otpLive,
-            MaterialTheme.colorScheme.tertiaryContainer
+            "验证码实时通知", "Android 16+ 使用实时通知显示验证码，其他情况回退为普通通知", otpLive
         ) {
             otpLive = it
             repo.otpLiveEnabled = it
             toast(context, if (it) "验证码实时通知已开启" else "验证码实时通知已关闭，将使用普通通知")
         }
-        Text("诊断日志", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Text("调试信息，用于排查连接与流转问题", style = MaterialTheme.typography.bodySmall)
+        val relayManager = remember { BleRelayManager.get(context) }
+        RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
+            Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("向所有已连接设备发送一条测试通知", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { sendTestNotification(context, relayManager, repo) }) { Text("发送测试通知") }
+            }
+        }
+        SectionLabel("诊断日志")
         SelectionContainer {
             Box(
-                Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest).verticalScroll(logScroll).padding(16.dp)
+                Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer).verticalScroll(logScroll).padding(16.dp)
             ) {
                 Text(logs.joinToString("\n"), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             }
@@ -671,9 +835,19 @@ private fun SettingsScreen() {
     }
 }
 
+/** 设置页类别小标题：与设备页「已配对设备」等标题同字号、同左对齐方式。 */
 @Composable
-private fun SettingSwitchCard(title: String, description: String, checked: Boolean, container: androidx.compose.ui.graphics.Color, onChange: (Boolean) -> Unit) {
-    RelayCard(container = container) {
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(start = 20.dp)
+    )
+}
+
+@Composable
+private fun SettingSwitchCard(title: String, description: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Bluetooth
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.SyncAlt
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -41,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -130,7 +132,7 @@ private fun OnboardingContent(
                         Spacer(Modifier.height(16.dp))
                         Text("通知流转", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "在两台手机间通过蓝牙流转通知，开始前请完成以下授权",
+                            "在多台设备间通过蓝牙流转通知，开始前请完成以下授权",
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(top = 8.dp)
@@ -140,21 +142,26 @@ private fun OnboardingContent(
                 item {
                     PermissionCard(
                         Icons.Outlined.Notifications, "通知使用权",
-                        if (listenerEnabled) "已开启" else "未开启", "去开启", onOpenListener
+                        granted = listenerEnabled,
+                        status = if (listenerEnabled) "已开启" else "未开启",
+                        action = "去开启", doneText = "已开启", onClick = onOpenListener
                     )
                 }
                 item {
                     PermissionCard(
                         Icons.Outlined.Bluetooth, "蓝牙与通知权限",
-                        if (permissionsGranted) "已授予" else "未授予", "去授权", onRequestPermissions
+                        granted = permissionsGranted,
+                        status = if (permissionsGranted) "已授予" else "未授予",
+                        action = "去授权", doneText = "已授权", onClick = onRequestPermissions
                     )
                 }
                 item {
                     Card(
+                        modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                         shape = RoundedCornerShape(24.dp)
                     ) {
-                        Column(Modifier.padding(20.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(20.dp)) {
                             Text("保持后台运行", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(
                                 "建议在系统设置中允许本应用后台运行 / 自启动，并在电池优化里设为「不限制」，否则切到后台后可能被系统清理、导致通知无法流转。",
@@ -178,18 +185,32 @@ private fun OnboardingContent(
 private fun PermissionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
+    granted: Boolean,
     status: String,
     action: String,
+    doneText: String,
     onClick: () -> Unit
 ) {
-    Card(shape = RoundedCornerShape(24.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
         Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, Modifier.size(30.dp))
             Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(status, style = MaterialTheme.typography.bodySmall)
             }
-            OutlinedButton(onClick = onClick) { Text(action) }
+            if (granted) {
+                // 授权完成：实心、白字、不可点击的完成态按钮
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = MaterialTheme.colorScheme.primary,
+                        disabledContentColor = Color.White
+                    )
+                ) { Text(doneText) }
+            } else {
+                OutlinedButton(onClick = onClick) { Text(action) }
+            }
         }
     }
 }

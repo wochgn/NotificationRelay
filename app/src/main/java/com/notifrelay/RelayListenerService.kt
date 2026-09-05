@@ -2,6 +2,8 @@ package com.notifrelay
 
 import android.app.Notification
 import android.content.ComponentName
+import android.content.Context
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import java.util.concurrent.ConcurrentHashMap
@@ -12,11 +14,35 @@ import org.json.JSONObject
  */
 class RelayListenerService : NotificationListenerService() {
 
-    // 常驻通知可能频繁触发相同内容的更新，避免重复占用 BLE 发送队列。
-    private val lastPostedHashes = ConcurrentHashMap<String, Int>()
+    companion object {
+        @Volatile
+        var isConnectedToListener: Boolean = false
+            private set
+
+        /**
+         * 应用更新/进程重启后，MIUI 等系统可能保留「通知使用权」授权却不重新绑定监听服务，
+         * 导致真实应用的通知不再转发。主动请求系统重新绑定。
+         */
+        fun requestListenerRebind(context: Context) {
+            if (isConnectedToListener) return
+            try {
+                NotificationListenerService.requestRebind(
+                    ComponentName(context, RelayListenerService::class.java)
+                )
+                EventLog.add("已请求系统重新绑定通知监听")
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    // 同一通知以相同内容高频重发（如常驻通知循环刷新）时做最小节流；
+    // 状态刷新（内容变化或超过间隔）都会重新发送流转通知。
+    private val lastPosted = ConcurrentHashMap<String, Pair<Int, Long>>()
+    private val sameContentIntervalMs = 500L
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        isConnectedToListener = true
         val count = try {
             activeNotifications?.size ?: 0
         } catch (e: Exception) {
@@ -27,6 +53,7 @@ class RelayListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        isConnectedToListener = false
         EventLog.add("通知监听已断开")
         // 部分 ROM 在应用更新或进程重启后不会自动恢复绑定，主动请求系统重连。
         requestRebind(ComponentName(this, RelayListenerService::class.java))
@@ -54,8 +81,11 @@ class RelayListenerService : NotificationListenerService() {
         } catch (_: Exception) {
             json.hashCode()
         }
-        if (lastPostedHashes.put(sbn.key, fingerprint) == fingerprint) return
-        EventLog.add("本机通知 [$sbn.packageName]")
+        val now = SystemClock.elapsedRealtime()
+        val prev = lastPosted[sbn.key]
+        if (prev != null && prev.first == fingerprint && now - prev.second < sameContentIntervalMs) return
+        lastPosted[sbn.key] = fingerprint to now
+        EventLog.add("本机通知 [${sbn.packageName}]")
         BleRelayManager.get(this).apply {
             sendToRemote(json)
             sendAppIconIfNeeded(sbn.packageName)
@@ -72,12 +102,9 @@ class RelayListenerService : NotificationListenerService() {
         if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
         if (sbn.key.isBlank()) return
 
-        lastPostedHashes.remove(sbn.key)
-        val json = JSONObject()
-            .put("type", "notif_remove")
-            .put("key", sbn.key)
-            .toString()
-        EventLog.add("本机通知已清除 [${sbn.packageName}]")
-        BleRelayManager.get(this).sendToRemote(json)
+        lastPosted.remove(sbn.key)
+        // 流转通知不随原机通知消失而消失：不再向远端发送 notif_remove，
+        // 远端通知保留，由用户在本机自行清除。
+        EventLog.add("本机通知已清除 [${sbn.packageName}]（远端保留）")
     }
 }

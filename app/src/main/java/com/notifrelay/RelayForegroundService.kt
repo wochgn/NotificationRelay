@@ -15,7 +15,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
 /**
- * 前台服务：保活 + 常驻状态通知（连接状态 + 远端电量）。
+ * 前台服务：保活 + 常驻状态通知（连接状态 + 各远端电量）。
  * Android 14+ 必须声明 connectedDevice 类型（见 AndroidManifest）。
  */
 class RelayForegroundService : Service() {
@@ -26,16 +26,26 @@ class RelayForegroundService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val manager get() = BleRelayManager.get(this)
+    private var lastScanRestartAt = 0L
     private val reconnectRunnable = Runnable {
         if (SettingsRepository.get(this).foregroundEnabled &&
-            SettingsRepository.get(this).savedDevices().isNotEmpty() &&
-            !manager.visibleConnected() &&
-            !manager.isConnecting() &&
-            !manager.isAutoReconnectPaused() &&
-            !manager.isDiscoveryActive()
+            SettingsRepository.get(this).savedDevices().isNotEmpty()
         ) {
-            // 扫描有单次超时，定期重启以覆盖远端稍后才进入可发现状态的情况。
-            manager.startDiscovery()
+            val background = !manager.isUiVisible()
+            // 后台不持续扫描：仅在完全断连（需要找回已配对设备）时低频补扫；
+            // 前台按原节奏扫描以发现新设备。
+            val allowScan = !background || !manager.hasVisibleConnections()
+            val minIntervalMs = if (background) 45_000L else 0L
+            if (allowScan &&
+                manager.hasMissingSavedPeer() &&
+                !manager.isConnecting() &&
+                !manager.isAutoReconnectPaused() &&
+                !manager.isDiscoveryScanning() &&
+                android.os.SystemClock.elapsedRealtime() - lastScanRestartAt >= minIntervalMs
+            ) {
+                lastScanRestartAt = android.os.SystemClock.elapsedRealtime()
+                manager.startDiscovery()
+            }
         }
         if (SettingsRepository.get(this).foregroundEnabled) scheduleReconnect()
     }
@@ -51,11 +61,13 @@ class RelayForegroundService : Service() {
         super.onCreate()
         manager.observeState(stateListener)
         scheduleReconnect()
+        // 后台自启时同样确保通知监听服务已绑定（应用更新后系统常不自动重绑）
+        RelayListenerService.requestListenerRebind(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_FIND_REMOTE) {
-            if (manager.findingRemote) manager.cancelFindRemote() else manager.findRemoteDevice()
+            if (manager.isFindingRemote()) manager.cancelFindRemote() else manager.findRemoteDevice()
         }
         startForeground(
             Constants.NOTIF_ID_FOREGROUND,
@@ -80,8 +92,7 @@ class RelayForegroundService : Service() {
         handler.postDelayed(reconnectRunnable, 500L)
     }
 
-    private fun currentState(): RelayState =
-        RelayState(manager.role, manager.visibleConnected(), manager.remoteName, manager.remoteBattery, manager.remoteAndroid)
+    private fun currentState(): RelayState = manager.currentState()
 
     private fun buildNotification(state: RelayState): Notification {
         val nm = getSystemService(NotificationManager::class.java)
@@ -96,13 +107,13 @@ class RelayForegroundService : Service() {
             }
         )
 
-        val text = if (state.connected) {
-            val name = state.remoteName.ifBlank { "未知设备" }
-            val android = state.remoteAndroid.ifBlank { "版本未知" }
-            val battery = if (state.remoteBattery >= 0) "${state.remoteBattery}%" else "电量未知"
-            "已连接 · $name · $android · 电量 $battery"
-        } else {
-            "未连接"
+        val text = when {
+            state.peers.isEmpty() -> "未连接"
+            else -> "已连接 ${state.peers.size} 台 · " + state.peers.joinToString("、") { peer ->
+                val name = peer.name.ifBlank { "未知设备" }
+                val battery = if (peer.battery >= 0) " ${peer.battery}%" else ""
+                "$name$battery"
+            }
         }
 
         val builder = NotificationCompat.Builder(this, Constants.CHANNEL_ID_FOREGROUND)
@@ -119,7 +130,7 @@ class RelayForegroundService : Service() {
             )
             .setOngoing(true)
             .setSilent(true)
-        if (state.connected) {
+        if (state.peers.isNotEmpty()) {
             val findIntent = Intent(this, RelayForegroundService::class.java)
                 .setAction(ACTION_FIND_REMOTE)
             val findPendingIntent = PendingIntent.getService(
@@ -130,7 +141,7 @@ class RelayForegroundService : Service() {
             )
             builder.addAction(
                 R.drawable.ic_notification,
-                if (manager.findingRemote) "取消查找" else "查找设备",
+                if (manager.isFindingRemote()) "取消查找" else "查找设备",
                 findPendingIntent
             )
         }
