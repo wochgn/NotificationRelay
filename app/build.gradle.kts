@@ -8,6 +8,35 @@ android {
     namespace = "com.notifrelay"
     compileSdk = 35
 
+    val releaseStoreFile =
+        System.getenv("NOTIF_RELAY_STORE_FILE") ?: providers.gradleProperty("releaseStoreFile").orNull
+    val releaseStorePassword =
+        System.getenv("NOTIF_RELAY_STORE_PASSWORD")
+            ?: providers.gradleProperty("releaseStorePassword").orNull
+    val releaseKeyAlias =
+        System.getenv("NOTIF_RELAY_KEY_ALIAS") ?: providers.gradleProperty("releaseKeyAlias").orNull
+    val releaseKeyPassword =
+        System.getenv("NOTIF_RELAY_KEY_PASSWORD")
+            ?: providers.gradleProperty("releaseKeyPassword").orNull
+    val releaseSigningConfigured = listOf(
+        releaseStoreFile,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword
+    ).all { !it.isNullOrBlank() }
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                storeType = "PKCS12"
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.notifrelay"
         minSdk = 31
@@ -18,7 +47,15 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
