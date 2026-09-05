@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -94,6 +93,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -418,6 +419,8 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
     val savedRows = rows.filter { it.saved }
     val nearbyRows = rows.filterNot { it.saved }
     val hasStatusNotice = !state.bluetoothEnabled || !state.listenerEnabled || !state.foregroundEnabled
+    val density = LocalDensity.current
+    var pairedRowsHeightPx by remember { mutableStateOf(0) }
 
     if (wideLayout) {
         // 大屏：已连接设备与已配对设备左右两栏展示
@@ -427,16 +430,20 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
         ) {
             if (hasStatusNotice) StatusCard(state)
             ScanButton(state, manager)
-            // IntrinsicSize.Min：左右两栏取较高者高度，连接卡撑满剩余空间，
-            // 使其高度与右栏两张已配对卡片（含间隙）一致
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "已连接设备（${state.peers.size}）",
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(horizontal = 20.dp)
                     )
                     state.peers.forEach { peer ->
+                        // 连接卡高度与右栏已配对卡片区块实测高度一致（含间隙）
+                        val matchHeight = if (pairedRowsHeightPx > 0) {
+                            Modifier.height(with(density) { pairedRowsHeightPx.toDp() })
+                        } else {
+                            Modifier
+                        }
                         ConnectedCard(
                             peer = peer,
                             onFind = {
@@ -449,7 +456,7 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
                                 manager.disconnect(peer.deviceId)
                                 refresh++
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = matchHeight
                         )
                     }
                     if (state.peers.isEmpty()) {
@@ -466,17 +473,18 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(horizontal = 20.dp)
                     )
-                    savedRows.forEach { row ->
-                        DeviceRow(row, { connectDevice(context, manager, row) }, { deleteId = row.id })
-                    }
-                    if (nearbyRows.isNotEmpty()) {
-                        Text(
-                            "附近设备",
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(horizontal = 20.dp)
-                        )
-                        nearbyRows.forEach { row ->
-                            DeviceRow(row, { connectDevice(context, manager, row) }, {})
+                    Column(
+                        Modifier.onSizeChanged { pairedRowsHeightPx = it.height },
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        savedRows.forEach { row ->
+                            DeviceRow(row, { connectDevice(context, manager, row) }, { deleteId = row.id })
+                        }
+                        if (nearbyRows.isNotEmpty()) {
+                            Text("附近设备", style = MaterialTheme.typography.labelLarge)
+                            nearbyRows.forEach { row ->
+                                DeviceRow(row, { connectDevice(context, manager, row) }, {})
+                            }
                         }
                     }
                     if (rows.isEmpty() && state.peers.isEmpty()) {
@@ -910,7 +918,7 @@ private fun SettingsScreen() {
         }
         var dedupeRepeat by remember { mutableStateOf(repo.dedupeRepeatEnabled) }
         SettingSwitchCard(
-            "优化流转重复通知", "1 秒内同一应用重复发布相同内容的通知时，仅流转第一条；超过 1 秒仍正常流转", dedupeRepeat
+            "优化流转重复通知", "接收端 1 秒内收到同一应用重复内容的通知时仅弹出第一条，超过 1 秒正常弹出", dedupeRepeat
         ) {
             dedupeRepeat = it
             repo.dedupeRepeatEnabled = it

@@ -268,6 +268,8 @@ class BleRelayManager private constructor(context: Context) {
 
     private var notifId = 1000
     private val remoteAppIcons = LruCache<String, Bitmap>(64)
+    // 接收端重复通知优化：1 秒窗口内同设备同 key 同内容的通知仅弹出第一条
+    private val receivedFingerprints = java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Long>>()
     private val remoteNotifications = object : LinkedHashMap<Int, RemoteNotificationData>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, RemoteNotificationData>?): Boolean = size > 64
     }
@@ -1390,13 +1392,31 @@ class BleRelayManager private constructor(context: Context) {
                         log("配对未完成，忽略远程通知")
                         return
                     }
+                    val key = obj.optString("key", "")
+                    // 「优化流转重复通知」在接收端执行：1 秒内同设备同 key 同内容仅弹第一条
+                    if (SettingsRepository.get(appContext).dedupeRepeatEnabled) {
+                        val fingerprint = listOf(
+                            obj.optString("device", ""),
+                            obj.optString("pkg", ""),
+                            obj.optString("app", ""),
+                            obj.optString("title", ""),
+                            obj.optString("text", "")
+                        ).joinToString("|").hashCode()
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        val dedupeKey = "${session.remoteDeviceId}|$key"
+                        val prev = receivedFingerprints[dedupeKey]
+                        if (prev != null && prev.first == fingerprint && now - prev.second < 1_000L) {
+                            log("1 秒内重复通知，已拦截：${obj.optString("app", "")}")
+                            return
+                        }
+                        receivedFingerprints[dedupeKey] = fingerprint to now
+                    }
                     log("收到远程通知")
                     val device = obj.optString("device", "")
                     val pkg = obj.optString("pkg", "")
                     val app = obj.optString("app", "远程")
                     val title = obj.optString("title", "")
                     val text = obj.optString("text", "")
-                    val key = obj.optString("key", "")
                     val ongoing = obj.optBoolean("ongoing", false)
                     val otpCode = obj.optString("code", "")
                         .takeIf { obj.optBoolean("otp", false) && it.isNotBlank() }

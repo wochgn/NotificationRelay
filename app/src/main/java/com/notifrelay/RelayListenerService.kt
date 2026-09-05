@@ -3,10 +3,8 @@ package com.notifrelay
 import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
-import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONObject
 
 /**
@@ -35,10 +33,7 @@ class RelayListenerService : NotificationListenerService() {
         }
     }
 
-    // 重复内容节流：「优化流转重复通知」开启时 1 秒窗口只流转第一条；
-    // 关闭时保留 200ms 最小间隔，防止极端应用循环刷通知打爆 BLE 队列。
-    private val lastPosted = ConcurrentHashMap<String, Pair<Int, Long>>()
-
+    // 发送端全量流转；重复通知的去重在接收端（BleRelayManager）按用户开关执行
     override fun onListenerConnected() {
         super.onListenerConnected()
         isConnectedToListener = true
@@ -79,16 +74,6 @@ class RelayListenerService : NotificationListenerService() {
 
         val deviceName = settings.resolvedDeviceName()
         val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
-        val fingerprint = try {
-            JSONObject(json).apply { remove("time") }.toString().hashCode()
-        } catch (_: Exception) {
-            json.hashCode()
-        }
-        val now = SystemClock.elapsedRealtime()
-        val intervalMs = if (settings.dedupeRepeatEnabled) 1_000L else 200L
-        val prev = lastPosted[sbn.key]
-        if (prev != null && prev.first == fingerprint && now - prev.second < intervalMs) return
-        lastPosted[sbn.key] = fingerprint to now
         EventLog.add("本机通知 [${sbn.packageName}]")
         BleRelayManager.get(this).apply {
             sendToRemote(json)
@@ -106,7 +91,6 @@ class RelayListenerService : NotificationListenerService() {
         if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
         if (sbn.key.isBlank()) return
 
-        lastPosted.remove(sbn.key)
         // 流转通知不随原机通知消失而消失：不再向远端发送 notif_remove，
         // 远端通知保留，由用户在本机自行清除。
         EventLog.add("本机通知已清除 [${sbn.packageName}]（远端保留）")
