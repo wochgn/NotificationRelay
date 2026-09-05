@@ -1464,10 +1464,11 @@ class BleRelayManager private constructor(context: Context) {
         ongoing: Boolean,
         otpCode: String? = null
     ) {
-        // 内容刷新检测：同 key 但内容变化 → 代数 +1，id 变化后以新通知形式再次弹出；
-        // 内容未变 → 同 id 原地覆盖
+        // 内容刷新处理：「内容刷新视为新通知」开启时，同 key 但内容变化 → 代数 +1、
+        // id 变化，以新通知形式再次弹出；关闭时同 id 原地覆盖（直接刷新已弹出的通知内容）
         val contentFp = listOf(device, pkg, app, title, text).joinToString("|").hashCode()
-        val generation = if (key.isEmpty()) 0 else {
+        val asNew = key.isNotEmpty() && SettingsRepository.get(appContext).refreshAsNewEnabled
+        val generation = if (!asNew) 0 else {
             val genKey = "$senderId|$key"
             synchronized(notifGenerations) {
                 val prev = notifGenerations[genKey]

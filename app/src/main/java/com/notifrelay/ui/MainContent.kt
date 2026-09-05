@@ -924,6 +924,14 @@ private fun SettingsScreen() {
             repo.dedupeRepeatEnabled = it
             toast(context, if (it) "重复通知优化已开启" else "重复通知优化已关闭")
         }
+        var refreshAsNew by remember { mutableStateOf(repo.refreshAsNewEnabled) }
+        SettingSwitchCard(
+            "内容刷新视为新通知", "开启后原通知内容刷新时会再弹出一条新通知；默认关闭，直接原地刷新已弹出的通知内容", refreshAsNew
+        ) {
+            refreshAsNew = it
+            repo.refreshAsNewEnabled = it
+            toast(context, if (it) "内容刷新将弹出新通知" else "内容刷新将原地更新通知")
+        }
         val relayManager = remember { BleRelayManager.get(context) }
         RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
             Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

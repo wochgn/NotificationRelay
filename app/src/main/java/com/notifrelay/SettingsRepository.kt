@@ -33,6 +33,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_OTP_LIVE_ENABLED = "otp_live_enabled"
         private const val KEY_RELAY_ONGOING_ENABLED = "relay_ongoing_enabled"
         private const val KEY_DEDUPE_REPEAT_ENABLED = "dedupe_repeat_enabled"
+        private const val KEY_REFRESH_AS_NEW_ENABLED = "refresh_as_new_enabled"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
@@ -69,6 +70,12 @@ class SettingsRepository private constructor(context: Context) {
     var dedupeRepeatEnabled: Boolean
         get() = prefs.getBoolean(KEY_DEDUPE_REPEAT_ENABLED, false)
         set(v) = prefs.edit().putBoolean(KEY_DEDUPE_REPEAT_ENABLED, v).apply()
+
+    // 内容刷新视为新通知：开启后同 key 通知内容变化时再次弹出一条新通知；
+    // 关闭时直接原地刷新已弹出的流转通知内容（默认）
+    var refreshAsNewEnabled: Boolean
+        get() = prefs.getBoolean(KEY_REFRESH_AS_NEW_ENABLED, false)
+        set(v) = prefs.edit().putBoolean(KEY_REFRESH_AS_NEW_ENABLED, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean
