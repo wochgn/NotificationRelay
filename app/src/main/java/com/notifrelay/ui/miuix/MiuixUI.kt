@@ -10,10 +10,12 @@ import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import android.view.ViewGroup
-import androidx.compose.runtime.MutableState
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.ComposeView
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -174,22 +177,23 @@ private fun MiuixAppContent(
     if (useGlassBar) {
         // 液态玻璃采样源：记录页面内容，供底栏折射
         val backdrop = rememberLayerBackdrop()
-        Scaffold(topBar = { TopAppBar(title = title) }) { padding ->
+        // 零 insets：页面延伸至状态栏与小白条之下（沉浸式），列表内容边距自行预留底栏空间；
+        // 底栏四周全透明；宽度自适应：大屏为屏幕宽度 40% 居中，手机为屏幕宽度 80%
+        val barFraction = if (widthSizeClass == WindowWidthSizeClass.Compact) 0.8f else 0.4f
+        Scaffold(
+            topBar = { TopAppBar(title = title) },
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+        ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 76.dp)
-                        .layerBackdrop(backdrop)
-                ) { pages() }
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) { pages() }
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
                     onSelect = onTabChange,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 20.dp)
-                        .width(80.dp)
+                        .padding(bottom = 24.dp)
+                        .fillMaxWidth(barFraction)
                         .height(56.dp)
                 )
             }
@@ -236,7 +240,7 @@ private fun MiuixAppContent(
 
 /**
  * 液态玻璃底栏（Kyant0/AndroidLiquidGlass backdrop 实现）：
- * 胶囊形、固定 80dp 宽、图标模式，实时折射上方页面内容。
+ * 胶囊形、宽度自适应（大屏 40% / 手机 80%）、图标模式，实时折射页面内容。
  * 折射/色散效果需要 Android 13+，低版本自动降级为模糊与活力效果。
  */
 @Composable
@@ -251,7 +255,7 @@ private fun MiuixLiquidGlassBottomBar(
         if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
         else Color(0xFF121212).copy(alpha = 0.4f)
 
-    Row(
+    BoxWithConstraints(
         modifier
             .drawBackdrop(
                 backdrop = backdrop,
@@ -263,30 +267,45 @@ private fun MiuixLiquidGlassBottomBar(
                 },
                 onDrawSurface = { drawRect(containerColor) }
             )
-            .height(56.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+            .height(56.dp)
     ) {
-        miuixTabs.forEach { item ->
-            val selected = currentTab == item.key
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(Capsule())
-                    .background(
-                        if (selected) MiuixTheme.colorScheme.surfaceContainerHighest
-                        else androidx.compose.ui.graphics.Color.Transparent
-                    )
-                    .clickable { onSelect(item.key) },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = item.icon,
-                    contentDescription = item.label,
-                    modifier = Modifier.size(22.dp),
-                    tint = if (selected) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.onSurfaceContainer
+        val itemWidth = maxWidth / miuixTabs.size
+        val selectedIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
+        val indicatorLeft by animateDpAsState(itemWidth * selectedIndex + 4.dp, label = "indicator")
+
+        // 选中指示器（随切换滑动）
+        Box(
+            Modifier
+                .offset(x = indicatorLeft)
+                .width(itemWidth - 8.dp)
+                .height(48.dp)
+                .clip(Capsule())
+                .background(
+                    if (isLight) Color.White.copy(alpha = 0.55f)
+                    else Color(0xFF6C6C6C).copy(alpha = 0.45f)
                 )
+        )
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            miuixTabs.forEach { item ->
+                val selected = currentTab == item.key
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onSelect(item.key) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
+                        modifier = Modifier.size(24.dp),
+                        tint = if (selected) Color(0xFF0088FF)
+                        else MiuixTheme.colorScheme.onSurfaceContainer
+                    )
+                }
             }
         }
     }
