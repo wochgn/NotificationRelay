@@ -86,6 +86,7 @@ dependencies {
     implementation("androidx.compose.material3:material3-window-size-class")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4-rc01")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4-rc01")
+    implementation("com.qmdeve.liquidglass:core:1.0.5")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")

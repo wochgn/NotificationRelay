@@ -10,6 +10,7 @@ import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import android.view.ViewGroup
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +35,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Search
@@ -49,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,22 +137,19 @@ private fun MiuixAppContent(manager: BleRelayManager, widthSizeClass: WindowWidt
     }
 
     if (widthSizeClass == WindowWidthSizeClass.Compact) {
-        Scaffold(
-            topBar = { TopAppBar(title = title) },
-            bottomBar = {
-                FloatingNavigationBar {
-                    miuixTabs.forEach { item ->
-                        FloatingNavigationBarItem(
-                            selected = currentTab == item.key,
-                            onClick = { currentTab = item.key },
-                            icon = item.icon,
-                            label = item.label
-                        )
-                    }
-                }
+        Scaffold(topBar = { TopAppBar(title = title) }) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) {
+                pages()
+                MiuixLiquidGlassBottomBar(
+                    currentTab = currentTab,
+                    onSelect = { currentTab = it },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 40.dp, end = 40.dp, bottom = 20.dp)
+                        .fillMaxWidth()
+                        .height(64.dp)
+                )
             }
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) { pages() }
         }
     } else {
         Row(Modifier.fillMaxSize()) {
@@ -322,7 +325,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -364,6 +367,88 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
                     if (state.discovery.scanning) "正在搜索附近设备…" else "未发现设备，点上方「扫描设备」",
                     modifier = Modifier.padding(16.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * 悬浮液态玻璃底栏：Android 13+ 使用 LiquidGlassView 实时折射后方内容，
+ * 低版本回退为半透明胶囊底色。
+ */
+@Composable
+private fun MiuixLiquidGlassBottomBar(
+    currentTab: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val localView = LocalView.current
+    val shape = RoundedCornerShape(32.dp)
+    Box(
+        modifier = modifier
+            .then(
+                if (android.os.Build.VERSION.SDK_INT >= 33) Modifier
+                else Modifier.background(
+                    MiuixTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shape
+                )
+            )
+            .clip(shape)
+    ) {
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            AndroidView(
+                modifier = Modifier.matchParentSize(),
+                factory = { ctx ->
+                    com.qmdeve.liquidglass.widget.LiquidGlassView(ctx).apply {
+                        val metrics = ctx.resources.displayMetrics
+                        fun px(dp: Int) = dp * metrics.density
+                        setCornerRadius(px(32))
+                        setRefractionHeight(px(20))
+                        setRefractionOffset(px(70))
+                        setBlurRadius(6f)
+                        setDispersion(0.3f)
+                        setTintAlpha(0.14f)
+                        // 绑定窗口内容作为折射采样源
+                        post {
+                            val content = localView.rootView.findViewById(android.R.id.content) as? ViewGroup
+                            if (content != null) bind(content)
+                        }
+                    }
+                }
+            )
+        }
+        Row(
+            Modifier.fillMaxSize().padding(vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            miuixTabs.forEach { item ->
+                val selected = currentTab == item.key
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(
+                            if (selected) MiuixTheme.colorScheme.surfaceContainerHighest
+                            else androidx.compose.ui.graphics.Color.Transparent
+                        )
+                        .clickable { onSelect(item.key) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = item.icon,
+                        contentDescription = item.label,
+                        tint = if (selected) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.onSurfaceContainer
+                    )
+                    Text(
+                        text = item.label,
+                        color = if (selected) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.onSurfaceContainer
+                    )
+                }
             }
         }
     }
@@ -556,7 +641,7 @@ private fun MiuixAppsScreen() {
                 CircularProgressIndicator()
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 12.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 96.dp)) {
                 item {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "搜索应用", Modifier.weight(1f))
@@ -751,7 +836,7 @@ private fun MiuixSettingsScreen() {
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(96.dp))
     }
 }
 
