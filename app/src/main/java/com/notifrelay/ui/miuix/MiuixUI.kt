@@ -310,9 +310,9 @@ private fun MiuixLiquidGlassBottomBar(
             animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
             label = "liquidPress"
         )
-        // 用尺寸变化替代 graphicsLayer 缩放：胶囊放大时内部折射内容保持原大小
-        val boxWidth = itemWidth * (1f + 0.28f * pressProgress)
-        val boxHeight = 56.dp * (1f + 0.7f * pressProgress)
+        // 按压时选项框大小等比增加 40%，折射参数保持不变
+        val boxWidth = itemWidth * (1f + 0.4f * pressProgress)
+        val boxHeight = 56.dp * (1f + 0.4f * pressProgress)
 
         // 图层顺序：基础玻璃栏（模糊+文字图案，整体录入 tabsBackdrop）→ 选项框（折射层，折射栏自身）。
         Row(
