@@ -885,17 +885,6 @@ private fun SettingsScreen() {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 主题与颜色：MD3 / MIUIX 风格切换
-        SectionLabel("主题与颜色")
-        var uiStyle by remember { mutableStateOf(repo.uiStyle) }
-        SettingSwitchCard(
-            "MIUIX 风格", "开启后使用 HyperOS（miuix）设计风格，关闭恢复 Material 3 风格", uiStyle == "miuix"
-        ) {
-            uiStyle = if (it) "miuix" else "md3"
-            repo.uiStyle = uiStyle
-            setUiStyle(uiStyle)
-            toast(context, if (it) "已切换到 MIUIX 风格" else "已切换到 MD3 风格")
-        }
         RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
             Text("设备名称", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("显示在流转通知标题中，默认使用系统设备名", style = MaterialTheme.typography.bodySmall)
@@ -963,6 +952,17 @@ private fun SettingsScreen() {
             refreshAsNew = it
             repo.refreshAsNewEnabled = it
             toast(context, if (it) "内容刷新将弹出新通知" else "内容刷新将原地更新通知")
+        }
+        // 主题与颜色：MD3 / MIUIX 风格切换
+        SectionLabel("主题与颜色")
+        var uiStyle by remember { mutableStateOf(repo.uiStyle) }
+        SettingSwitchCard(
+            "MIUIX 风格", "开启后使用 HyperOS（miuix）设计风格，关闭恢复 Material 3 风格", uiStyle == "miuix"
+        ) {
+            uiStyle = if (it) "miuix" else "md3"
+            repo.uiStyle = uiStyle
+            setUiStyle(uiStyle)
+            toast(context, if (it) "已切换到 MIUIX 风格" else "已切换到 MD3 风格")
         }
         SectionLabel("调试与日志")
         var verboseLog by remember { mutableStateOf(repo.verboseLogEnabled) }

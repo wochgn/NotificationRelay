@@ -78,8 +78,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
+import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.NavigationRail
 import top.yukonga.miuix.kmp.basic.NavigationRailItem
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -134,9 +134,9 @@ private fun MiuixAppContent(manager: BleRelayManager, widthSizeClass: WindowWidt
         Scaffold(
             topBar = { TopAppBar(title = title) },
             bottomBar = {
-                NavigationBar {
+                FloatingNavigationBar {
                     miuixTabs.forEach { item ->
-                        NavigationBarItem(
+                        FloatingNavigationBarItem(
                             selected = currentTab == item.key,
                             onClick = { currentTab = item.key },
                             icon = item.icon,
@@ -322,8 +322,8 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             MiuixCard {
@@ -564,7 +564,7 @@ private fun MiuixAppsScreen() {
                 }
                 items(filtered, key = { it.pkg }) { app ->
                     val checked = repo.isAppInWhitelist(app.pkg)
-                    MiuixCard(modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp)) {
+                    MiuixCard(modifier = Modifier.padding(vertical = 3.dp)) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -620,23 +620,8 @@ private fun MiuixSettingsScreen() {
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SmallTitle(text = "主题与颜色", modifier = Modifier.padding(top = 6.dp))
-        MiuixCard {
-            top.yukonga.miuix.kmp.preference.SwitchPreference(
-                title = "MIUIX 风格",
-                summary = "关闭后恢复 Material 3 风格（MD3）",
-                checked = uiStyle == "miuix",
-                onCheckedChange = {
-                    uiStyle = if (it) "miuix" else "md3"
-                    repo.uiStyle = uiStyle
-                    setUiStyle(uiStyle)
-                    toast(context, if (it) "已切换到 MIUIX 风格" else "已切换到 MD3 风格")
-                }
-            )
-        }
-
         SmallTitle(text = "设备名称")
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -715,6 +700,20 @@ private fun MiuixSettingsScreen() {
             }
         }
 
+        SmallTitle(text = "主题与颜色", modifier = Modifier.padding(top = 6.dp))
+        MiuixCard {
+            top.yukonga.miuix.kmp.preference.SwitchPreference(
+                title = "MIUIX 风格",
+                summary = "关闭后恢复 Material 3 风格（MD3）",
+                checked = uiStyle == "miuix",
+                onCheckedChange = {
+                    uiStyle = if (it) "miuix" else "md3"
+                    repo.uiStyle = uiStyle
+                    setUiStyle(uiStyle)
+                    toast(context, if (it) "已切换到 MIUIX 风格" else "已切换到 MD3 风格")
+                }
+            )
+        }
         SmallTitle(text = "调试与日志")
         MiuixCard {
             MiuixSwitchPref(
@@ -737,7 +736,7 @@ private fun MiuixSettingsScreen() {
                 }
             }
         }
-        MiuixCard(modifier = Modifier.padding(horizontal = 12.dp)) {
+        MiuixCard {
             SelectionContainer {
                 Column(
                     Modifier.fillMaxWidth().height(240.dp)
