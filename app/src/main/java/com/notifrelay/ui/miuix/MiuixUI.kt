@@ -11,6 +11,12 @@ import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import android.view.ViewGroup
+import android.graphics.RectF
+import android.widget.FrameLayout
+import androidx.compose.runtime.MutableState
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.ComposeView
+import com.qmdeve.liquidglass.widget.LiquidGlassView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -54,7 +60,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -122,7 +127,11 @@ fun MiuixRelayApp(manager: BleRelayManager, widthSizeClass: WindowWidthSizeClass
 @Composable
 private fun MiuixAppContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeClass) {
     val context = LocalContext.current
-    var currentTab by rememberSaveable { mutableStateOf("devices") }
+    val repo = remember { SettingsRepository.get(context) }
+    val activity = context as? Activity
+    var glassBarEnabled by remember { mutableStateOf(repo.liquidGlassBarEnabled) }
+    val tabState = rememberSaveable { mutableStateOf("devices") }
+    var currentTab by tabState
     val tab = miuixTabs.firstOrNull { it.key == currentTab } ?: miuixTabs.first()
 
     BackHandler { (context as? Activity)?.finish() }
@@ -132,26 +141,48 @@ private fun MiuixAppContent(manager: BleRelayManager, widthSizeClass: WindowWidt
         when (currentTab) {
             "devices" -> MiuixDevicesScreen(manager)
             "apps" -> MiuixAppsScreen()
-            "settings" -> MiuixSettingsScreen()
+            "settings" -> MiuixSettingsScreen(
+                glassBarEnabled = glassBarEnabled,
+                onGlassBarChanged = {
+                    glassBarEnabled = it
+                    repo.liquidGlassBarEnabled = it
+                }
+            )
         }
     }
 
-    if (widthSizeClass == WindowWidthSizeClass.Compact) {
+    // 开启液态玻璃底栏时：手机与 Pad 统一使用底部悬浮玻璃栏（Pad 不再显示侧边栏）
+    val useGlassBar = glassBarEnabled || widthSizeClass == WindowWidthSizeClass.Compact
+
+    if (useGlassBar && activity != null) {
+        // 玻璃视图挂载在窗口层（与 Compose 视图平级），采样源必须排除玻璃自身
+        val glassController = remember(activity) { MiuixGlassBarController(activity) }
+        val themeController = remember { ThemeController(ColorSchemeMode.System) }
+        DisposableEffect(Unit) { onDispose { glassController.remove() } }
+
         Scaffold(topBar = { TopAppBar(title = title) }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 pages()
-                MiuixLiquidGlassBottomBar(
-                    currentTab = currentTab,
-                    onSelect = { currentTab = it },
-                    modifier = Modifier
+                Box(
+                    Modifier
                         .align(Alignment.BottomCenter)
                         .padding(start = 40.dp, end = 40.dp, bottom = 20.dp)
                         .fillMaxWidth()
                         .height(64.dp)
+                        .onGloballyPositioned { coords ->
+                            val pos = coords.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
+                            val sz = coords.size
+                            glassController.update(
+                                tabs = miuixTabs,
+                                bounds = RectF(pos.x, pos.y, pos.x + sz.width, pos.y + sz.height),
+                                tabState = tabState,
+                                themeController = themeController
+                            )
+                        }
                 )
             }
         }
-    } else {
+    } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
         Row(Modifier.fillMaxSize()) {
             NavigationRail(
                 header = { Spacer(Modifier.height(24.dp)) }
@@ -169,9 +200,175 @@ private fun MiuixAppContent(manager: BleRelayManager, widthSizeClass: WindowWidt
                 Box(Modifier.fillMaxSize().padding(padding)) { pages() }
             }
         }
+    } else {
+        // 关闭液态玻璃底栏的手机布局：普通悬浮导航栏
+        Scaffold(
+            topBar = { TopAppBar(title = title) },
+            bottomBar = {
+                FloatingNavigationBar {
+                    miuixTabs.forEach { item ->
+                        FloatingNavigationBarItem(
+                            selected = currentTab == item.key,
+                            onClick = { currentTab = item.key },
+                            icon = item.icon,
+                            label = item.label
+                        )
+                    }
+                }
+            }
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding)) { pages() }
+        }
     }
 }
 
+/**
+ * 窗口层液态玻璃底栏控制器。
+ *
+ * 窗口 content 根的三个平级子节点：[应用 ComposeView] [LiquidGlassView] [条目 ComposeView]。
+ * 玻璃视图是采样源（应用 ComposeView）的兄弟节点而非子孙节点 —— 若玻璃位于采样源子树内，
+ * 渲染树会形成自引用，触发 Java 重入录制异常与 native 递归栈溢出。
+ * 条目使用独立 ComposeView，通过共享 snapshot 状态与主界面同步选中项。
+ */
+private class MiuixGlassBarController(activity: Activity) {
+
+    private val content = activity.findViewById<ViewGroup>(android.R.id.content)
+    private var glass: LiquidGlassView? = null
+    private var overlay: ComposeView? = null
+    private var themeController: ThemeController? = null
+    private var tabState: MutableState<String>? = null
+    private var tabs: List<MiuixTab> = emptyList()
+    private var bound = false
+    private var lastBounds = RectF()
+
+    fun update(
+        tabs: List<MiuixTab>,
+        bounds: RectF,
+        tabState: MutableState<String>,
+        themeController: ThemeController
+    ) {
+        this.tabs = tabs
+        this.tabState = tabState
+        this.themeController = themeController
+        val unchanged = bounds == lastBounds && glass != null && overlay != null
+        lastBounds = RectF(bounds)
+        if (!unchanged) {
+            ensureViews(bounds)
+            bindSourceIfPossible()
+        }
+    }
+
+    private fun ensureViews(bounds: RectF) {
+        val density = content.resources.displayMetrics.density
+        var g = glass
+        if (g == null) {
+            g = LiquidGlassView(content.context).apply {
+                setCornerRadius(28 * density)
+                setRefractionHeight(20 * density)
+                setRefractionOffset(70 * density)
+                setBlurRadius(6f)
+                setDispersion(0.3f)
+                setTintAlpha(0.14f)
+            }
+            glass = g
+            content.addView(
+                g,
+                FrameLayout.LayoutParams(bounds.width().toInt(), bounds.height().toInt()).apply {
+                    leftMargin = bounds.left.toInt()
+                    topMargin = bounds.top.toInt()
+                }
+            )
+        } else {
+            val lp = g.layoutParams as FrameLayout.LayoutParams
+            lp.width = bounds.width().toInt()
+            lp.height = bounds.height().toInt()
+            lp.leftMargin = bounds.left.toInt()
+            lp.topMargin = bounds.top.toInt()
+            g.layoutParams = lp
+        }
+        var ov = overlay
+        if (ov == null) {
+            ov = ComposeView(content.context)
+            overlay = ov
+            content.addView(
+                ov,
+                FrameLayout.LayoutParams(bounds.width().toInt(), bounds.height().toInt()).apply {
+                    leftMargin = bounds.left.toInt()
+                    topMargin = bounds.top.toInt()
+                }
+            )
+        } else {
+            val lp = ov.layoutParams as FrameLayout.LayoutParams
+            lp.width = bounds.width().toInt()
+            lp.height = bounds.height().toInt()
+            lp.leftMargin = bounds.left.toInt()
+            lp.topMargin = bounds.top.toInt()
+            ov.layoutParams = lp
+        }
+        ov.setContent {
+            val tc = themeController ?: return@setContent
+            val state = tabState ?: return@setContent
+            MiuixTheme(controller = tc) {
+                Row(
+                    Modifier.fillMaxSize().padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    tabs.forEach { item ->
+                        val selected = state.value == item.key
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(
+                                    if (selected) MiuixTheme.colorScheme.surfaceContainerHighest
+                                    else androidx.compose.ui.graphics.Color.Transparent
+                                )
+                                .clickable { state.value = item.key },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.label,
+                                tint = if (selected) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.onSurfaceContainer
+                            )
+                            Text(
+                                text = item.label,
+                                color = if (selected) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.onSurfaceContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun bindSourceIfPossible() {
+        val g = glass ?: return
+        if (bound) return
+        // 采样源 = 应用 Compose 视图（玻璃与条目层的兄弟节点）
+        for (i in 0 until content.childCount) {
+            val child = content.getChildAt(i)
+            if (child is ViewGroup && child !== g && child !== overlay) {
+                g.bind(child)
+                bound = true
+                break
+            }
+        }
+    }
+
+    fun remove() {
+        glass?.let { content.removeView(it) }
+        overlay?.let { content.removeView(it) }
+        glass = null
+        overlay = null
+        bound = false
+    }
+}
 // ================= 设备页 =================
 
 private data class MiuixDeviceUi(
@@ -367,88 +564,6 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
                     if (state.discovery.scanning) "正在搜索附近设备…" else "未发现设备，点上方「扫描设备」",
                     modifier = Modifier.padding(16.dp)
                 )
-            }
-        }
-    }
-}
-
-/**
- * 悬浮液态玻璃底栏：Android 13+ 使用 LiquidGlassView 实时折射后方内容，
- * 低版本回退为半透明胶囊底色。
- */
-@Composable
-private fun MiuixLiquidGlassBottomBar(
-    currentTab: String,
-    onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val localView = LocalView.current
-    val shape = RoundedCornerShape(32.dp)
-    Box(
-        modifier = modifier
-            .then(
-                if (android.os.Build.VERSION.SDK_INT >= 33) Modifier
-                else Modifier.background(
-                    MiuixTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    shape
-                )
-            )
-            .clip(shape)
-    ) {
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            AndroidView(
-                modifier = Modifier.matchParentSize(),
-                factory = { ctx ->
-                    com.qmdeve.liquidglass.widget.LiquidGlassView(ctx).apply {
-                        val metrics = ctx.resources.displayMetrics
-                        fun px(dp: Int) = dp * metrics.density
-                        setCornerRadius(px(32))
-                        setRefractionHeight(px(20))
-                        setRefractionOffset(px(70))
-                        setBlurRadius(6f)
-                        setDispersion(0.3f)
-                        setTintAlpha(0.14f)
-                        // 绑定窗口内容作为折射采样源
-                        post {
-                            val content = localView.rootView.findViewById(android.R.id.content) as? ViewGroup
-                            if (content != null) bind(content)
-                        }
-                    }
-                }
-            )
-        }
-        Row(
-            Modifier.fillMaxSize().padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            miuixTabs.forEach { item ->
-                val selected = currentTab == item.key
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            if (selected) MiuixTheme.colorScheme.surfaceContainerHighest
-                            else androidx.compose.ui.graphics.Color.Transparent
-                        )
-                        .clickable { onSelect(item.key) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.label,
-                        tint = if (selected) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.onSurfaceContainer
-                    )
-                    Text(
-                        text = item.label,
-                        color = if (selected) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.onSurfaceContainer
-                    )
-                }
             }
         }
     }
@@ -678,7 +793,7 @@ private fun MiuixAppsScreen() {
 // ================= 设置页 =================
 
 @Composable
-private fun MiuixSettingsScreen() {
+private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Boolean) -> Unit) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     var deviceName by remember { mutableStateOf(repo.resolvedDeviceName()) }
@@ -787,6 +902,9 @@ private fun MiuixSettingsScreen() {
 
         SmallTitle(text = "主题与颜色", modifier = Modifier.padding(top = 6.dp))
         MiuixCard {
+            MiuixSwitchPref(
+                "液态玻璃底栏", "开启后底部导航栏使用液态玻璃效果，悬浮于内容之上", glassBarEnabled, onGlassBarChanged
+            )
             top.yukonga.miuix.kmp.preference.SwitchPreference(
                 title = "MIUIX 风格",
                 summary = "关闭后恢复 Material 3 风格（MD3）",

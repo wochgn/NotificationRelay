@@ -36,6 +36,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_REFRESH_AS_NEW_ENABLED = "refresh_as_new_enabled"
         private const val KEY_VERBOSE_LOG_ENABLED = "verbose_log_enabled"
         private const val KEY_UI_STYLE = "ui_style"
+        private const val KEY_LIQUID_GLASS_BAR_ENABLED = "liquid_glass_bar_enabled"
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
@@ -88,6 +89,11 @@ class SettingsRepository private constructor(context: Context) {
     var uiStyle: String
         get() = prefs.getString(KEY_UI_STYLE, "md3") ?: "md3"
         set(v) = prefs.edit().putString(KEY_UI_STYLE, v).apply()
+
+    // miuix 风格下是否启用液态玻璃底栏（默认开启）
+    var liquidGlassBarEnabled: Boolean
+        get() = prefs.getBoolean(KEY_LIQUID_GLASS_BAR_ENABLED, true)
+        set(v) = prefs.edit().putBoolean(KEY_LIQUID_GLASS_BAR_ENABLED, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean
