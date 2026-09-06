@@ -10,7 +10,13 @@ import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
@@ -179,7 +185,7 @@ private fun MiuixAppContent(
         val backdrop = rememberLayerBackdrop()
         // 零 insets：页面延伸至状态栏与小白条之下（沉浸式），列表内容边距自行预留底栏空间；
         // 底栏四周全透明；宽度自适应：大屏为屏幕宽度 40% 居中，手机为屏幕宽度 80%
-        val barFraction = if (widthSizeClass == WindowWidthSizeClass.Compact) 0.8f else 0.4f
+        val barFraction = if (widthSizeClass == WindowWidthSizeClass.Compact) 0.7f else 0.3f
         Scaffold(
             topBar = { TopAppBar(title = title) },
             contentWindowInsets = WindowInsets(0, 0, 0, 0)
@@ -252,8 +258,8 @@ private fun MiuixLiquidGlassBottomBar(
 ) {
     val isLight = !isSystemInDarkTheme()
     val containerColor =
-        if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
-        else Color(0xFF121212).copy(alpha = 0.4f)
+        if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.6f)
+        else Color(0xFF121212).copy(alpha = 0.55f)
 
     BoxWithConstraints(
         modifier
@@ -262,18 +268,28 @@ private fun MiuixLiquidGlassBottomBar(
                 shape = { Capsule() },
                 effects = {
                     vibrancy()
-                    blur(8f.dp.toPx())
+                    blur(15f.dp.toPx())
                     lens(24f.dp.toPx(), 24f.dp.toPx())
                 },
                 onDrawSurface = { drawRect(containerColor) }
             )
-            .height(56.dp)
+            .height(56.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
         val itemWidth = maxWidth / miuixTabs.size
         val selectedIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
-        val indicatorLeft by animateDpAsState(itemWidth * selectedIndex + 4.dp, label = "indicator")
+        var pressedIndex by remember { mutableIntStateOf(-1) }
+        val indicatorIndex = if (pressedIndex >= 0) pressedIndex else selectedIndex
+        val indicatorLeft by animateDpAsState(
+            targetValue = itemWidth * indicatorIndex + 4.dp,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            ),
+            label = "indicator"
+        )
 
-        // 选中指示器（随切换滑动）
+        // 选中指示器：按下即滑向目标页签，松手停驻在选中页签
         Box(
             Modifier
                 .offset(x = indicatorLeft)
@@ -286,23 +302,47 @@ private fun MiuixLiquidGlassBottomBar(
                 )
         )
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            miuixTabs.forEach { item ->
+            miuixTabs.forEachIndexed { index, item ->
                 val selected = currentTab == item.key
-                Box(
+                val interaction = remember { MutableInteractionSource() }
+                val pressed by interaction.collectIsPressedAsState()
+                val iconScale by animateFloatAsState(
+                    targetValue = if (pressed) 1.2f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "iconScale"
+                )
+                LaunchedEffect(pressed) {
+                    if (pressed) pressedIndex = index
+                }
+                Column(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
+                            interactionSource = interaction,
                             indication = null
                         ) { onSelect(item.key) },
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         imageVector = item.icon,
                         contentDescription = item.label,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .graphicsLayer {
+                                scaleX = iconScale
+                                scaleY = iconScale
+                            },
                         tint = if (selected) Color(0xFF0088FF)
+                        else MiuixTheme.colorScheme.onSurfaceContainer
+                    )
+                    Text(
+                        text = item.label,
+                        color = if (selected) Color(0xFF0088FF)
                         else MiuixTheme.colorScheme.onSurfaceContainer
                     )
                 }
