@@ -10,10 +10,12 @@ import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -49,6 +51,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -203,41 +207,47 @@ private fun MiuixAppContent(
         "settings" -> settingsScrollProgress
         else -> remember { mutableStateOf(0f) }
     }
-    // 页面连续索引动画：三个页面常驻组合，动画值经过中间索引时中间页自然掠过
+    // 三个页面由 HorizontalPager 按顺序拼接；未选页面位于屏幕外。
+    // beyondViewportPageCount=2 保证三个页面常驻，设备→设置滚动时应用页真实经过屏幕。
     val currentTabIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
-    val pageIndexAnim = remember { Animatable(currentTabIndex.toFloat()) }
-    LaunchedEffect(currentTab) {
-        pageIndexAnim.animateTo(
-            currentTabIndex.toFloat(),
-            spring(dampingRatio = 0.85f, stiffness = 800f)
+    val pagerState = rememberPagerState(
+        initialPage = currentTabIndex,
+        pageCount = { miuixTabs.size }
+    )
+    LaunchedEffect(currentTabIndex) {
+        val distance = abs(currentTabIndex - pagerState.currentPage).coerceAtLeast(1)
+        pagerState.animateScrollToPage(
+            page = currentTabIndex,
+            animationSpec = tween(
+                durationMillis = distance * 180,
+                easing = FastOutSlowInEasing
+            )
         )
     }
     val pages: @Composable () -> Unit = {
-        Box(Modifier.fillMaxSize()) {
-            miuixTabs.forEachIndexed { index, tabItem ->
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(MiuixTheme.colorScheme.surface)
-                        .graphicsLayer {
-                            val offset = index - pageIndexAnim.value
-                            translationX = offset * size.width
-                            // 仅显示与动画值相邻的页面，远处页面隐藏避免越界绘制
-                            alpha = if (offset in -1f..1f) 1f else 0f
-                        }
-                ) {
-                    when (tabItem.key) {
-                        "devices" -> MiuixDevicesScreen(manager, deviceScrollProgress)
-                        "apps" -> MiuixAppsScreen()
-                        "settings" -> MiuixSettingsScreen(
-                            glassBarEnabled = glassBarEnabled,
-                            onGlassBarChanged = {
-                                glassBarEnabled = it
-                                repo.liquidGlassBarEnabled = it
-                            },
-                            scrollProgress = settingsScrollProgress
-                        )
-                    }
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 2,
+            userScrollEnabled = false,
+            key = { index -> miuixTabs[index].key }
+        ) { index ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(MiuixTheme.colorScheme.surface)
+            ) {
+                when (miuixTabs[index].key) {
+                    "devices" -> MiuixDevicesScreen(manager, deviceScrollProgress)
+                    "apps" -> MiuixAppsScreen()
+                    "settings" -> MiuixSettingsScreen(
+                        glassBarEnabled = glassBarEnabled,
+                        onGlassBarChanged = {
+                            glassBarEnabled = it
+                            repo.liquidGlassBarEnabled = it
+                        },
+                        scrollProgress = settingsScrollProgress
+                    )
                 }
             }
         }
