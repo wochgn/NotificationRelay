@@ -298,9 +298,7 @@ private fun MiuixAppContent(
                     backdrop = backdrop,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
-                val navBarGlassColor =
-                    if (!isSystemInDarkTheme()) Color.White.copy(alpha = 0.6f)
-                    else Color(0xFF121212).copy(alpha = 0.6f)
+                val surfaceColor = MiuixTheme.colorScheme.surface
                 Box(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -312,7 +310,8 @@ private fun MiuixAppContent(
                                 vibrancy()
                                 blur(14f.dp.toPx())
                             },
-                            onDrawSurface = { drawRect(navBarGlassColor) }
+                            highlight = { Highlight.Plain },
+                            onDrawSurface = { drawRect(surfaceColor) }
                         )
                 ) {
                     NavigationBar(color = Color.Transparent, showDivider = false) {
@@ -601,7 +600,7 @@ private fun MiuixCollapsingTopBar(
     val density = LocalDensity.current
     val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
     val sp = scrollProgress.value
-    val isLight = !isSystemInDarkTheme()
+    val surfaceColor = MiuixTheme.colorScheme.surface
     Box(
         modifier
             .fillMaxWidth()
@@ -614,13 +613,9 @@ private fun MiuixCollapsingTopBar(
                         vibrancy()
                         blur(14f.dp.toPx())
                     },
-                    onDrawSurface = {
-                        drawRect(
-                            if (isLight) Color.White.copy(alpha = 0.6f)
-                            else Color(0xFF121212).copy(alpha = 0.6f)
-                        )
-                    }
-                ) else Modifier.background(MiuixTheme.colorScheme.surface)
+                    highlight = { Highlight.Plain },
+                    onDrawSurface = { drawRect(surfaceColor) }
+                ) else Modifier.background(surfaceColor)
             ),
         contentAlignment = Alignment.BottomCenter
     ) {
