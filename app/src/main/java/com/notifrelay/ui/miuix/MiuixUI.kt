@@ -17,6 +17,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
@@ -65,6 +68,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
@@ -178,7 +182,7 @@ private fun MiuixAppContent(
     }
 
     // 开启液态玻璃底栏时：手机与 Pad 统一使用底部悬浮玻璃栏（Pad 不再显示侧边栏）
-    val useGlassBar = glassBarEnabled || widthSizeClass == WindowWidthSizeClass.Compact
+    val useGlassBar = glassBarEnabled
 
     if (useGlassBar) {
         // 液态玻璃采样源：记录页面内容，供底栏折射
@@ -258,8 +262,8 @@ private fun MiuixLiquidGlassBottomBar(
 ) {
     val isLight = !isSystemInDarkTheme()
     val containerColor =
-        if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.6f)
-        else Color(0xFF121212).copy(alpha = 0.55f)
+        if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
+        else Color(0xFF121212).copy(alpha = 0.4f)
 
     BoxWithConstraints(
         modifier
@@ -268,8 +272,8 @@ private fun MiuixLiquidGlassBottomBar(
                 shape = { Capsule() },
                 effects = {
                     vibrancy()
-                    blur(15f.dp.toPx())
-                    lens(24f.dp.toPx(), 24f.dp.toPx())
+                    blur(8f.dp.toPx())
+                    lens(12f.dp.toPx(), 24f.dp.toPx())
                 },
                 onDrawSurface = { drawRect(containerColor) }
             )
@@ -297,11 +301,29 @@ private fun MiuixLiquidGlassBottomBar(
                 .height(48.dp)
                 .clip(Capsule())
                 .background(
-                    if (isLight) Color.White.copy(alpha = 0.55f)
+                    if (isLight) Color.Black.copy(alpha = 0.28f)
                     else Color(0xFF6C6C6C).copy(alpha = 0.45f)
                 )
         )
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        fun indexAt(x: Float) =
+                            (x / (size.width / miuixTabs.size.toFloat())).toInt().coerceIn(0, miuixTabs.lastIndex)
+                        pressedIndex = indexAt(down.position.x)
+                        drag(down.id) { change ->
+                            change.consume()
+                            pressedIndex = indexAt(change.position.x)
+                        }
+                        onSelect(miuixTabs[pressedIndex.coerceAtLeast(0)].key)
+                        pressedIndex = -1
+                    }
+                },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             miuixTabs.forEachIndexed { index, item ->
                 val selected = currentTab == item.key
                 val interaction = remember { MutableInteractionSource() }
@@ -317,6 +339,7 @@ private fun MiuixLiquidGlassBottomBar(
                 LaunchedEffect(pressed) {
                     if (pressed) pressedIndex = index
                 }
+                val lifted = pressed
                 Column(
                     Modifier
                         .weight(1f)
@@ -334,8 +357,10 @@ private fun MiuixLiquidGlassBottomBar(
                         modifier = Modifier
                             .size(24.dp)
                             .graphicsLayer {
-                                scaleX = iconScale
-                                scaleY = iconScale
+                                val liftScale = if (lifted) 1.45f else 1f
+                                scaleX = iconScale * liftScale
+                                scaleY = iconScale * liftScale
+                                translationY = if (lifted) -6.dp.toPx() else 0f
                             },
                         tint = if (selected) Color(0xFF0088FF)
                         else MiuixTheme.colorScheme.onSurfaceContainer

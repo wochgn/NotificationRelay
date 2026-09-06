@@ -3,6 +3,7 @@ package com.notifrelay
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.getValue
@@ -40,6 +41,12 @@ class MainActivity : ComponentActivity() {
         val settings = SettingsRepository.get(this)
         uiStyleState = settings.uiStyle
         setContent {
+            // 沉浸式状态下栏/小白条：按主题自动反色（浅色主题深色图标，深色主题浅色图标）
+            val systemDark = isSystemInDarkTheme()
+            val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+            insetsController.isAppearanceLightStatusBars = !systemDark
+            insetsController.isAppearanceLightNavigationBars = !systemDark
+
             // M3 自适应：按窗口宽度决定导航形态
             val windowSizeClass = calculateWindowSizeClass(this)
             if (uiStyleState == "miuix") {
