@@ -14,16 +14,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -33,6 +30,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
@@ -67,6 +65,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
@@ -75,6 +74,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -105,11 +105,14 @@ import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import top.yukonga.miuix.kmp.basic.NavigationRail
 import top.yukonga.miuix.kmp.basic.NavigationRailItem
@@ -132,6 +135,9 @@ private val miuixTabs = listOf(
     MiuixTab("apps", "应用", Icons.Outlined.Apps),
     MiuixTab("settings", "设置", Icons.Outlined.Settings)
 )
+
+private val MiuixPageItemSpacing = 5.6.dp
+private val MiuixSectionTitleMargin = PaddingValues(horizontal = 28.dp, vertical = 5.28.dp)
 
 /**
  * miuix（HyperOS 风格）界面：与 MD3 版并列，仅 UI 层不同，业务逻辑复用 BleRelayManager。
@@ -192,23 +198,30 @@ private fun MiuixAppContent(
         // 零 insets：页面延伸至状态栏与小白条之下（沉浸式），列表内容边距自行预留底栏空间；
         // 底栏四周全透明；宽度自适应：大屏为屏幕宽度 40% 居中，手机为屏幕宽度 80%
         val barFraction = if (widthSizeClass == WindowWidthSizeClass.Compact) 0.7f else 0.3f
-        Scaffold(
-            topBar = { TopAppBar(title = title) },
-            contentWindowInsets = WindowInsets(0, 0, 0, 0)
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) { pages() }
-                MiuixLiquidGlassBottomBar(
-                    backdrop = backdrop,
-                    currentTab = currentTab,
-                    onSelect = onTabChange,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                        .fillMaxWidth(barFraction)
-                        .height(56.dp)
-                )
+        Box(Modifier.fillMaxSize()) {
+            // 将完整 Scaffold（背景、顶部栏与页面）录入同一采样层，保证玻璃可折射所有页面元素。
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(backdrop)
+            ) {
+                Scaffold(
+                    topBar = { TopAppBar(title = title) },
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                ) { padding ->
+                    Box(Modifier.fillMaxSize().padding(padding)) { pages() }
+                }
             }
+            MiuixLiquidGlassBottomBar(
+                backdrop = backdrop,
+                currentTab = currentTab,
+                onSelect = onTabChange,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .fillMaxWidth(barFraction)
+                    .height(64.dp)
+            )
         }
     } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
         Row(Modifier.fillMaxSize()) {
@@ -266,136 +279,178 @@ private fun MiuixLiquidGlassBottomBar(
     val containerColor =
         if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
         else Color(0xFF121212).copy(alpha = 0.4f)
+    val indicatorTint =
+        if (isLight) Color.Black.copy(alpha = 0.1f)
+        else Color.White.copy(alpha = 0.1f)
+    val tabsBackdrop = rememberLayerBackdrop()
 
     BoxWithConstraints(
-        modifier
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { Capsule() },
-                effects = {
-                    vibrancy()
-                    blur(14f.dp.toPx())
-                    lens(12f.dp.toPx(), 40f.dp.toPx())
-                },
-                onDrawSurface = { drawRect(containerColor) }
-            )
-            .height(56.dp),
+        modifier = modifier,
         contentAlignment = Alignment.CenterStart
     ) {
-        val itemWidth = maxWidth / miuixTabs.size
+        val density = LocalDensity.current
+        val itemWidth = (maxWidth - 8.dp) / miuixTabs.size
         val selectedIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
-        // pressedIndex：按下/拖经的页签；dragX：手指实时位置（NaN 表示未按压）
         var pressedIndex by remember { mutableIntStateOf(-1) }
         var dragX by remember { mutableStateOf(Float.NaN) }
         val isPressing = pressedIndex >= 0
-        val restingIndex = if (isPressing) pressedIndex else selectedIndex
-
-        // 选项框：按压时跟随手指移动，松手回弹停驻到目标页签
-        val density = LocalDensity.current
+        val targetX = if (isPressing && !dragX.isNaN()) {
+            with(density) { dragX.toDp() }
+                .coerceIn(4.dp + itemWidth / 2, maxWidth - 4.dp - itemWidth / 2) - itemWidth / 2
+        } else {
+            4.dp + itemWidth * selectedIndex
+        }
         val indicatorLeft by animateDpAsState(
-            targetValue = if (isPressing && !dragX.isNaN()) {
-                with(density) { dragX.toDp() }.coerceIn(itemWidth / 2, maxWidth - itemWidth / 2) - itemWidth / 2
-            } else {
-                itemWidth * restingIndex
-            },
+            targetValue = targetX,
             animationSpec = spring(
-                dampingRatio = if (isPressing) Spring.DampingRatioNoBouncy else Spring.DampingRatioMediumBouncy,
-                stiffness = if (isPressing) 1200f else Spring.StiffnessMediumLow
+                dampingRatio = if (isPressing) 1f else Spring.DampingRatioMediumBouncy,
+                stiffness = if (isPressing) 1000f else 300f
             ),
-            label = "indicator"
+            label = "liquidIndicatorX"
         )
-        // 按压时选项框放大并向上浮起，超出玻璃栏边界
-        val liftProgress by animateFloatAsState(
+        val pressProgress by animateFloatAsState(
             targetValue = if (isPressing) 1f else 0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMedium
-            ),
-            label = "lift"
+            animationSpec = spring(dampingRatio = 1f, stiffness = 1000f),
+            label = "liquidPress"
         )
 
-        // 选中/按压选项框：放大浮起的胶囊
+        // 基础玻璃栏与浮起选项框必须是兄弟节点，避免外层 Capsule 裁剪放大内容。
+        Row(
+            Modifier
+                .align(Alignment.Center)
+                .height(64.dp)
+                .fillMaxWidth()
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { Capsule() },
+                    effects = {
+                        vibrancy()
+                        blur(14f.dp.toPx())
+                        lens(12f.dp.toPx(), 40f.dp.toPx())
+                    },
+                    onDrawSurface = { drawRect(containerColor) }
+                )
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
+        }
+
+        // 隐藏的标签采样层供移动选项框组合采样，保留图标与文字的折射轮廓。
+        Row(
+            Modifier
+                .align(Alignment.Center)
+                .clearAndSetSemantics { }
+                .alpha(0f)
+                .layerBackdrop(tabsBackdrop)
+                .height(56.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = {})
+        }
+
         Box(
             Modifier
                 .offset(x = indicatorLeft)
+                .align(Alignment.CenterStart)
                 .width(itemWidth)
-                .height(48.dp)
+                .height(56.dp)
                 .graphicsLayer {
-                    val s = 1f + 0.22f * liftProgress
-                    scaleX = s
-                    scaleY = s
-                    translationY = -7.dp.toPx() * liftProgress
+                    val scale = 1f + (78f / 56f - 1f) * pressProgress
+                    scaleX = scale
+                    scaleY = scale
                 }
-                .clip(Capsule())
-                .background(
-                    if (isLight) Color.Black.copy(alpha = 0.28f)
-                    else Color(0xFF6C6C6C).copy(alpha = 0.45f)
+                .drawBackdrop(
+                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
+                    shape = { Capsule() },
+                    effects = {
+                        lens(
+                            10f.dp.toPx() * pressProgress,
+                            14f.dp.toPx() * pressProgress,
+                            chromaticAberration = true
+                        )
+                    },
+                    shadow = { Shadow(alpha = pressProgress) },
+                    innerShadow = {
+                        InnerShadow(
+                            radius = 8.dp * pressProgress,
+                            alpha = pressProgress
+                        )
+                    },
+                    onDrawSurface = {
+                        drawRect(indicatorTint, alpha = 1f - pressProgress)
+                        drawRect(Color.Black.copy(alpha = 0.03f * pressProgress))
+                    }
                 )
         )
+
         Row(
             Modifier
-                .fillMaxSize()
+                .align(Alignment.Center)
+                .height(64.dp)
+                .fillMaxWidth()
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        val horizontalPadding = with(density) { 4.dp.toPx() }
+                        val segmentWidth = (size.width - horizontalPadding * 2f) / miuixTabs.size
+                        fun clampedX(x: Float) = x.coerceIn(
+                            horizontalPadding + segmentWidth / 2f,
+                            size.width - horizontalPadding - segmentWidth / 2f
+                        )
                         fun indexAt(x: Float) =
-                            (x / (size.width / miuixTabs.size.toFloat())).toInt().coerceIn(0, miuixTabs.lastIndex)
-                        pressedIndex = indexAt(down.position.x)
-                        dragX = down.position.x
+                            ((x - horizontalPadding) / segmentWidth).toInt()
+                                .coerceIn(0, miuixTabs.lastIndex)
+                        dragX = clampedX(down.position.x)
+                        pressedIndex = indexAt(dragX)
                         drag(down.id) { change ->
+                            dragX = clampedX(change.position.x)
+                            pressedIndex = indexAt(dragX)
                             change.consume()
-                            dragX = change.position.x
-                            pressedIndex = indexAt(change.position.x)
                         }
                         onSelect(miuixTabs[pressedIndex.coerceAtLeast(0)].key)
                         pressedIndex = -1
                         dragX = Float.NaN
                     }
-                },
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            miuixTabs.forEachIndexed { index, item ->
-                val selected = currentTab == item.key
-                val pressed = pressedIndex == index
-                val itemScale by animateFloatAsState(
-                    targetValue = if (pressed) 1.12f else 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    label = "itemScale"
-                )
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { onSelect(item.key) },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = item.icon,
-                        contentDescription = item.label,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .graphicsLayer {
-                                scaleX = itemScale
-                                scaleY = itemScale
-                                translationY = -(itemScale - 1f) * 40f
-                            },
-                        tint = if (selected) Color(0xFF0088FF)
-                        else MiuixTheme.colorScheme.onSurfaceContainer
-                    )
-                    Text(
-                        text = item.label,
-                        color = if (selected) Color(0xFF0088FF)
-                        else MiuixTheme.colorScheme.onSurfaceContainer
-                    )
                 }
-            }
+        ) {
+            miuixTabs.forEach { Spacer(Modifier.weight(1f).fillMaxHeight()) }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.MiuixLiquidGlassTabItems(
+    currentTab: String,
+    onSelect: (String) -> Unit
+) {
+    miuixTabs.forEach { item ->
+        val selected = currentTab == item.key
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onSelect(item.key) },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = item.icon,
+                contentDescription = item.label,
+                modifier = Modifier.size(24.dp),
+                tint = if (selected) Color(0xFF0088FF)
+                else MiuixTheme.colorScheme.onSurfaceContainer
+            )
+            Text(
+                text = item.label,
+                color = if (selected) Color(0xFF0088FF)
+                else MiuixTheme.colorScheme.onSurfaceContainer
+            )
         }
     }
 }
@@ -553,7 +608,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         item {
             MiuixCard {
@@ -561,7 +616,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
             }
         }
         if (state.peers.isNotEmpty()) {
-            item { SmallTitle(text = "已连接设备（${state.peers.size}）") }
+            item { MiuixSectionTitle("已连接设备（${state.peers.size}）") }
             items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
                 MiuixCard {
                     MiuixPeerRow(manager, peer, { deleteId = it }, { manualDisconnect = true; refresh++ })
@@ -569,7 +624,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
             }
         }
         if (savedRows.isNotEmpty()) {
-            item { SmallTitle(text = "已配对设备") }
+            item { MiuixSectionTitle("已配对设备") }
             item {
                 MiuixCard {
                     savedRows.forEach { row ->
@@ -579,7 +634,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
             }
         }
         if (nearbyRows.isNotEmpty()) {
-            item { SmallTitle(text = "附近设备") }
+            item { MiuixSectionTitle("附近设备") }
             item {
                 MiuixCard {
                     nearbyRows.forEach { row ->
@@ -850,9 +905,9 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(5.6.dp)
+        verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
-        SmallTitle(text = "设备名称")
+        MiuixSectionTitle("设备名称")
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 TextField(
@@ -886,7 +941,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
             }
         }
 
-        SmallTitle(text = "后台管理")
+        MiuixSectionTitle("后台管理")
         MiuixCard {
             MiuixSwitchPref(
                 "常驻后台", "保持连接并在状态栏显示各设备状态", foreground
@@ -898,7 +953,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
             }
         }
 
-        SmallTitle(text = "通知增强")
+        MiuixSectionTitle("通知增强")
         MiuixCard {
             MiuixSwitchPref(
                 "验证码实时通知", "Android 16+ 使用实时通知显示验证码，其他情况回退为普通通知", otpLive
@@ -930,7 +985,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
             }
         }
 
-        SmallTitle(text = "主题与颜色", modifier = Modifier.padding(top = 4.dp))
+        MiuixSectionTitle("主题与颜色", modifier = Modifier.padding(top = 3.2.dp))
         MiuixCard {
             top.yukonga.miuix.kmp.preference.SwitchPreference(
                 title = "MIUIX 风格",
@@ -947,7 +1002,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
                 "液态玻璃底栏", "开启后底部导航栏使用液态玻璃效果，悬浮于内容之上", glassBarEnabled, onGlassBarChanged
             )
         }
-        SmallTitle(text = "调试与日志")
+        MiuixSectionTitle("调试与日志")
         MiuixCard {
             MiuixSwitchPref(
                 "启用日志显示", "关闭后仅记录一般日志（错误、警告等），不记录连接、扫描等全部详细事件", verboseLog
@@ -986,6 +1041,15 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
         }
         Spacer(Modifier.height(96.dp))
     }
+}
+
+@Composable
+private fun MiuixSectionTitle(text: String, modifier: Modifier = Modifier) {
+    SmallTitle(
+        text = text,
+        modifier = modifier,
+        insideMargin = MiuixSectionTitleMargin
+    )
 }
 
 @Composable
