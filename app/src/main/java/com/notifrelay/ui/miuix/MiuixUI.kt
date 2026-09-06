@@ -307,7 +307,7 @@ private fun MiuixLiquidGlassBottomBar(
             label = "liquidPress"
         )
 
-        // 基础玻璃栏负责全部模糊，文字与图案绘制在这一层，不随选项框缩放。
+        // 图层顺序：基础玻璃栏（模糊）→ 选项框（折射层）→ 文字图标内容（最上层，不随选项框缩放）。
         Row(
             Modifier
                 .align(Alignment.Center)
@@ -323,13 +323,9 @@ private fun MiuixLiquidGlassBottomBar(
                     },
                     onDrawSurface = { drawRect(containerColor) }
                 )
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
-        }
+        ) {}
 
-        // 选项框：位于 tab 栏之上的透明玻璃层，有折射无模糊，仅按压时放大并投影浮起。
+        // 选项框：位于 tab 栏之上的透明折射层，有折射无模糊，仅按压时放大并投影浮起。
         Box(
             Modifier
                 .offset(x = indicatorLeft)
@@ -357,6 +353,18 @@ private fun MiuixLiquidGlassBottomBar(
                     shadow = { Shadow(alpha = pressProgress) }
                 )
         )
+
+        // 文字与图案内容绘制在选项框之上，始终完整可见。
+        Row(
+            Modifier
+                .align(Alignment.Center)
+                .height(64.dp)
+                .fillMaxWidth()
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
+        }
 
         Row(
             Modifier
