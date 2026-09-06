@@ -40,8 +40,8 @@ android {
         applicationId = "com.notifrelay"
         minSdk = 31
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 2696
+        versionName = "1.9"
     }
 
     buildTypes {
