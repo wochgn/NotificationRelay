@@ -172,11 +172,15 @@ private val tabExitTransitionWide: AnimatedContentTransitionScope<androidx.navig
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RelayMainContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeClass) {
+fun RelayMainContent(
+    manager: BleRelayManager,
+    widthSizeClass: WindowWidthSizeClass,
+    currentTab: String,
+    onTabChange: (String) -> Unit
+) {
     val context = LocalContext.current
     val navController = rememberNavController()
-    val currentEntry by navController.currentBackStackEntryAsState()
-    val route = currentEntry?.destination?.route ?: "devices"
+    val route = currentTab
     val destination = destinations.firstOrNull { it.route == route } ?: destinations.first()
     var pairingVersion by remember { mutableIntStateOf(0) }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -213,7 +217,19 @@ fun RelayMainContent(manager: BleRelayManager, widthSizeClass: WindowWidthSizeCl
         )
     }
 
+    // 外部（风格切换等）改变目标页时同步导航，保持页面位置
+    LaunchedEffect(currentTab) {
+        if (navController.currentBackStackEntry?.destination?.route != currentTab) {
+            navController.navigate(currentTab) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
     fun navigateTo(item: Destination) {
+        onTabChange(item.route)
         navController.navigate(item.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true

@@ -12,12 +12,19 @@ import androidx.core.view.WindowCompat
 import com.notifrelay.ui.RelayMainContent
 import com.notifrelay.ui.RelayTheme
 
-// 全局界面风格状态：MainActivity 与各页面共享，切风格即时生效
+// 全局界面状态：MainActivity 与各页面共享，切换风格/主题即时生效且保持页面位置
 var uiStyleState by mutableStateOf("md3")
+    private set
+
+var appTabState by mutableStateOf("devices")
     private set
 
 fun setUiStyle(style: String) {
     uiStyleState = style
+}
+
+fun setAppTab(tab: String) {
+    appTabState = tab
 }
 
 class MainActivity : ComponentActivity() {
@@ -30,15 +37,26 @@ class MainActivity : ComponentActivity() {
         }
         // 应用更新后系统可能保留通知使用权授权但不再绑定监听服务，主动请求重绑
         RelayListenerService.requestListenerRebind(this)
-        uiStyleState = SettingsRepository.get(this).uiStyle
+        val settings = SettingsRepository.get(this)
+        uiStyleState = settings.uiStyle
         setContent {
             // M3 自适应：按窗口宽度决定导航形态
             val windowSizeClass = calculateWindowSizeClass(this)
             if (uiStyleState == "miuix") {
-                com.notifrelay.ui.miuix.MiuixRelayApp(manager = BleRelayManager.get(this), widthSizeClass = windowSizeClass.widthSizeClass)
+                com.notifrelay.ui.miuix.MiuixRelayApp(
+                    manager = BleRelayManager.get(this),
+                    widthSizeClass = windowSizeClass.widthSizeClass,
+                    currentTab = appTabState,
+                    onTabChange = { setAppTab(it) }
+                )
             } else {
                 RelayTheme {
-                    RelayMainContent(BleRelayManager.get(this), windowSizeClass.widthSizeClass)
+                    RelayMainContent(
+                        manager = BleRelayManager.get(this),
+                        widthSizeClass = windowSizeClass.widthSizeClass,
+                        currentTab = appTabState,
+                        onTabChange = { setAppTab(it) }
+                    )
                 }
             }
         }
