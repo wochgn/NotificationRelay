@@ -279,6 +279,9 @@ private fun MiuixLiquidGlassBottomBar(
     val containerColor =
         if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
         else Color(0xFF121212).copy(alpha = 0.4f)
+    val indicatorTint =
+        if (isLight) Color.Black.copy(alpha = 0.1f)
+        else Color.White.copy(alpha = 0.1f)
     val tabsBackdrop = rememberLayerBackdrop()
 
     BoxWithConstraints(
@@ -300,15 +303,14 @@ private fun MiuixLiquidGlassBottomBar(
         val indicatorLeft by animateDpAsState(
             targetValue = targetX,
             animationSpec = spring(
-                dampingRatio = if (isPressing) 0.75f else Spring.DampingRatioMediumBouncy,
-                stiffness = if (isPressing) 900f else 300f
+                dampingRatio = if (isPressing) 1f else Spring.DampingRatioMediumBouncy,
+                stiffness = if (isPressing) 1000f else 300f
             ),
             label = "liquidIndicatorX"
         )
-        // Q 弹液态效果：放大/回弹均带弹性过冲
         val pressProgress by animateFloatAsState(
             targetValue = if (isPressing) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
+            animationSpec = spring(dampingRatio = 1f, stiffness = 1000f),
             label = "liquidPress"
         )
 
@@ -364,17 +366,11 @@ private fun MiuixLiquidGlassBottomBar(
                     backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
                     shape = { Capsule() },
                     effects = {
-                        // 静止时与基础玻璃栏完全一致的模糊；按压时叠加色散折射
-                        vibrancy()
-                        blur(14f.dp.toPx())
-                        lens(12f.dp.toPx(), 40f.dp.toPx())
-                        if (pressProgress > 0.01f) {
-                            lens(
-                                10f.dp.toPx() * pressProgress,
-                                14f.dp.toPx() * pressProgress,
-                                chromaticAberration = true
-                            )
-                        }
+                        lens(
+                            10f.dp.toPx() * pressProgress,
+                            14f.dp.toPx() * pressProgress,
+                            chromaticAberration = true
+                        )
                     },
                     shadow = { Shadow(alpha = pressProgress) },
                     innerShadow = {
@@ -384,11 +380,8 @@ private fun MiuixLiquidGlassBottomBar(
                         )
                     },
                     onDrawSurface = {
-                        // 仅按压时轻微着色，平时与未选中区域同为透明玻璃
-                        drawRect(
-                            if (isLight) Color.Black else Color.White,
-                            alpha = 0.06f * pressProgress
-                        )
+                        drawRect(indicatorTint, alpha = 1f - pressProgress)
+                        drawRect(Color.Black.copy(alpha = 0.03f * pressProgress))
                     }
                 )
         )
