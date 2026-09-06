@@ -122,6 +122,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import com.kyant.backdrop.Backdrop
@@ -211,20 +212,24 @@ private fun MiuixAppContent(
         AnimatedContent(
             targetState = currentTab,
             transitionSpec = {
-                val forward = (pageOrder[targetState] ?: 0) > (pageOrder[initialState] ?: 0)
+                // 跨越多个 tab 时按间隔成比例平移：如设备→设置经过应用页位置
+                val from = pageOrder[initialState] ?: 0
+                val to = pageOrder[targetState] ?: 0
+                val direction = if (to >= from) 1 else -1
+                val span = abs(to - from).coerceAtLeast(1)
                 val enter = slideInHorizontally(
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,
                         stiffness = Spring.StiffnessMediumLow
                     ),
-                    initialOffsetX = { width -> if (forward) width else -width }
+                    initialOffsetX = { width -> direction * width * span }
                 )
                 val exit = slideOutHorizontally(
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,
                         stiffness = Spring.StiffnessMediumLow
                     ),
-                    targetOffsetX = { width -> if (forward) -width else width }
+                    targetOffsetX = { width -> -direction * width * span }
                 )
                 enter togetherWith exit
             },
@@ -363,6 +368,8 @@ private fun MiuixAppContent(
                             onDrawSurface = { drawRect(surfaceColor) }
                         )
                 ) {
+                    // 底栏与内容之间的灰色分界线
+                    HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
                     NavigationBar(
                         modifier = Modifier.fillMaxWidth(),
                         color = Color.Transparent,
@@ -707,7 +714,7 @@ private fun MiuixPageTitle(title: String, scrollProgress: State<Float>) {
         text = title,
         style = MiuixTheme.textStyles.title1,
         modifier = Modifier
-            .padding(start = 16.dp, top = 4.dp)
+            .padding(start = 28.dp, top = 4.dp)
             .padding(bottom = 4.dp + contentGap)
             .graphicsLayer {
                 alpha = 1f - sp
@@ -1087,7 +1094,7 @@ private fun MiuixAppsScreen() {
         Text(
             text = "应用",
             style = MiuixTheme.textStyles.title1,
-            modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 9.dp)
+            modifier = Modifier.padding(start = 28.dp, top = 4.dp, bottom = 9.dp)
         )
         MiuixCard {
             Row(
