@@ -298,7 +298,8 @@ private fun MiuixAppContent(
                     backdrop = backdrop,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
-                val surfaceColor = MiuixTheme.colorScheme.surface
+                // 表面 85% 不透明：模糊可见且无透明漏底
+                val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.85f)
                 Box(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -310,7 +311,7 @@ private fun MiuixAppContent(
                                 vibrancy()
                                 blur(14f.dp.toPx())
                             },
-                            highlight = { Highlight.Plain },
+                            highlight = { Highlight(alpha = 0f) },
                             onDrawSurface = { drawRect(surfaceColor) }
                         )
                 ) {
@@ -584,7 +585,7 @@ private fun RowScope.MiuixLiquidGlassTabItems(
 }// ================= 设备页 =================
 
 /** 顶栏内容高度：原 TopAppBar 背景条缩短 40% 后的高度（不含状态栏）。 */
-private val MiuixTopBarContentHeight = 40.dp
+private val MiuixTopBarContentHeight = 48.dp
 
 /**
  * miuix 顶栏：背景常驻（提供 backdrop 时为毛玻璃模糊，否则纯 surface），
@@ -600,7 +601,8 @@ private fun MiuixCollapsingTopBar(
     val density = LocalDensity.current
     val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
     val sp = scrollProgress.value
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    // 表面 85% 不透明：磨砂质感下模糊清晰可见，且无透明漏底
+    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.85f)
     Box(
         modifier
             .fillMaxWidth()
@@ -613,23 +615,27 @@ private fun MiuixCollapsingTopBar(
                         vibrancy()
                         blur(14f.dp.toPx())
                     },
-                    highlight = { Highlight.Plain },
+                    highlight = { Highlight(alpha = 0f) },
                     onDrawSurface = { drawRect(surfaceColor) }
                 ) else Modifier.background(surfaceColor)
-            ),
-        contentAlignment = Alignment.BottomCenter
+            )
     ) {
-        Text(
-            text = title,
-            style = MiuixTheme.textStyles.main,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .padding(bottom = 8.dp)
-                .graphicsLayer {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = title,
+                style = MiuixTheme.textStyles.main,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.graphicsLayer {
                     alpha = sp
                     translationY = (1f - sp) * 14.dp.toPx()
                 }
-        )
+            )
+        }
     }
 }
 
