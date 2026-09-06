@@ -9,3 +9,6 @@ build/
 /captures
 .externalNativeBuild
 .cxx
+.tmp_prefs/
+.tmp_rewrite/
+.tmp_*.png
