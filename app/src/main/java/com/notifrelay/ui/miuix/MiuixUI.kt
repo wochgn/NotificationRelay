@@ -103,6 +103,7 @@ import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -288,19 +289,20 @@ private fun MiuixLiquidGlassBottomBar(
         var pressedIndex by remember { mutableIntStateOf(-1) }
         var dragX by remember { mutableStateOf(Float.NaN) }
         val isPressing = pressedIndex >= 0
-        val targetX = if (isPressing && !dragX.isNaN()) {
+        // 选项框中心点：拖动时跟随手指，静止时停驻选中项中心
+        val targetCenterX = if (isPressing && !dragX.isNaN()) {
             with(density) { dragX.toDp() }
-                .coerceIn(4.dp + itemWidth / 2, maxWidth - 4.dp - itemWidth / 2) - itemWidth / 2
+                .coerceIn(4.dp + itemWidth / 2, maxWidth - 4.dp - itemWidth / 2)
         } else {
-            4.dp + itemWidth * selectedIndex
+            4.dp + itemWidth * (selectedIndex + 0.5f)
         }
-        val indicatorLeft by animateDpAsState(
-            targetValue = targetX,
+        val centerX by animateDpAsState(
+            targetValue = targetCenterX,
             animationSpec = spring(
                 dampingRatio = if (isPressing) 0.75f else Spring.DampingRatioMediumBouncy,
                 stiffness = if (isPressing) 900f else 300f
             ),
-            label = "liquidIndicatorX"
+            label = "liquidIndicatorCenter"
         )
         // Q 弹液态效果：放大/回弹均带弹性过冲
         val pressProgress by animateFloatAsState(
@@ -308,6 +310,10 @@ private fun MiuixLiquidGlassBottomBar(
             animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
             label = "liquidPress"
         )
+        // 用尺寸变化替代 graphicsLayer 缩放：胶囊放大时内部折射内容保持原大小
+        val growFactor = 1f + (78f / 56f - 1f) * pressProgress
+        val boxWidth = itemWidth * growFactor
+        val boxHeight = 56.dp * growFactor
 
         // 图层顺序：基础玻璃栏（模糊+文字图案，整体录入 tabsBackdrop）→ 选项框（折射层，折射栏自身）。
         Row(
@@ -332,23 +338,18 @@ private fun MiuixLiquidGlassBottomBar(
             MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
         }
 
-        // 选项框：位于 tab 栏之上的透明折射层，采样栏自身图像——折射划过的玻璃与内容，不透明化。
+        // 选项框：位于 tab 栏之上的透明层。静止时完全透明不折射；拖动/按压时透镜激活，
+        // 折射选项框边缘覆盖的栏内容；放大只改变胶囊尺寸，内容保持原大小。
         Box(
             Modifier
-                .offset(x = indicatorLeft)
+                .offset(x = centerX - boxWidth / 2)
                 .align(Alignment.CenterStart)
-                .width(itemWidth)
-                .height(56.dp)
-                .graphicsLayer {
-                    val scale = 1f + (78f / 56f - 1f) * pressProgress
-                    scaleX = scale
-                    scaleY = scale
-                }
+                .width(boxWidth)
+                .height(boxHeight)
                 .drawBackdrop(
-                    backdrop = tabsBackdrop,
+                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
                     shape = { Capsule() },
                     effects = {
-                        lens(12f.dp.toPx(), 40f.dp.toPx())
                         if (pressProgress > 0.01f) {
                             lens(
                                 10f.dp.toPx() * pressProgress,
