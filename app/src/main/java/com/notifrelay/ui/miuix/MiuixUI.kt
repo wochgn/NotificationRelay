@@ -21,6 +21,11 @@ import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -43,6 +48,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -74,6 +80,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -133,7 +140,6 @@ import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
@@ -189,53 +195,64 @@ private fun MiuixAppContent(
     BackHandler { (context as? Activity)?.finish() }
 
     val title = tab.label
+    val scrollProgress = remember { mutableStateOf(0f) }
     val pages: @Composable () -> Unit = {
         when (currentTab) {
-            "devices" -> MiuixDevicesScreen(manager)
+            "devices" -> MiuixDevicesScreen(manager, scrollProgress)
             "apps" -> MiuixAppsScreen()
             "settings" -> MiuixSettingsScreen(
                 glassBarEnabled = glassBarEnabled,
                 onGlassBarChanged = {
                     glassBarEnabled = it
                     repo.liquidGlassBarEnabled = it
-                }
+                },
+                scrollProgress = scrollProgress
             )
         }
+    }
+
+    // 液态玻璃采样源：记录页面内容，供顶栏毛玻璃、底栏与玻璃选项框折射
+    val backdrop = rememberLayerBackdrop()
+    // 页面内容层：避开顶栏（状态栏 + 40dp），底部余量由各页面自带
+    val pageArea: @Composable () -> Unit = {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(top = MiuixTopBarContentHeight)
+        ) { pages() }
     }
 
     // 开启液态玻璃底栏时：手机与 Pad 统一使用底部悬浮玻璃栏（Pad 不再显示侧边栏）
     val useGlassBar = glassBarEnabled
 
     if (useGlassBar) {
-        // 液态玻璃采样源：记录页面内容，供底栏折射
-        val backdrop = rememberLayerBackdrop()
         // 零 insets：页面延伸至状态栏与小白条之下（沉浸式），列表内容边距自行预留底栏空间；
         // 底栏四周全透明；宽度自适应：大屏为屏幕宽度 40% 居中，手机为屏幕宽度 80%
         val barFraction = if (widthSizeClass == WindowWidthSizeClass.Compact) 0.7f else 0.3f
-        Box(Modifier.fillMaxSize()) {
-            // 将完整 Scaffold（背景、顶部栏与页面）录入同一采样层，保证玻璃可折射所有页面元素。
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .layerBackdrop(backdrop)
-            ) {
-                Scaffold(
-                    topBar = { TopAppBar(title = title) },
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                ) { padding ->
-                    Box(Modifier.fillMaxSize().padding(padding)) { pages() }
+        Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { _ ->
+            Box(Modifier.fillMaxSize()) {
+                // 采样层只包含页面内容：顶栏与底栏在采样层外消费玻璃效果，避免自引用
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                    pageArea()
                 }
+                MiuixCollapsingTopBar(
+                    title = title,
+                    scrollProgress = scrollProgress,
+                    backdrop = backdrop,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+                MiuixLiquidGlassBottomBar(
+                    backdrop = backdrop,
+                    currentTab = currentTab,
+                    onSelect = onTabChange,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .fillMaxWidth(barFraction)
+                        .height(64.dp)
+                )
             }
-            MiuixLiquidGlassBottomBar(
-                backdrop = backdrop,
-                currentTab = currentTab,
-                onSelect = onTabChange,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .fillMaxWidth(barFraction)
-                    .height(64.dp)
-            )
         }
     } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
         Row(Modifier.fillMaxSize()) {
@@ -251,28 +268,65 @@ private fun MiuixAppContent(
                     )
                 }
             }
-            Scaffold(topBar = { TopAppBar(title = title) }, modifier = Modifier.weight(1f)) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding)) { pages() }
+            Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                modifier = Modifier.weight(1f)
+            ) { _ ->
+                Box(Modifier.fillMaxSize()) {
+                    Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                        pageArea()
+                    }
+                    MiuixCollapsingTopBar(
+                        title = title,
+                        scrollProgress = scrollProgress,
+                        backdrop = backdrop,
+                        modifier = Modifier.align(Alignment.TopCenter)
+                    )
+                }
             }
         }
     } else {
-        // 关闭液态玻璃底栏的手机布局：贴底全宽标准导航栏（图标+文字标签）
-        Scaffold(
-            topBar = { TopAppBar(title = title) },
-            bottomBar = {
-                NavigationBar {
-                    miuixTabs.forEach { item ->
-                        NavigationBarItem(
-                            selected = currentTab == item.key,
-                            onClick = { onTabChange(item.key) },
-                            icon = item.icon,
-                            label = item.label
+        // 关闭液态玻璃底栏的手机布局：贴底全宽标准导航栏，毛玻璃背景，图层位于内容上方
+        Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { _ ->
+            Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                    pageArea()
+                }
+                MiuixCollapsingTopBar(
+                    title = title,
+                    scrollProgress = scrollProgress,
+                    backdrop = backdrop,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+                val navBarGlassColor =
+                    if (!isSystemInDarkTheme()) Color.White.copy(alpha = 0.6f)
+                    else Color(0xFF121212).copy(alpha = 0.6f)
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { RectangleShape },
+                            effects = {
+                                vibrancy()
+                                blur(14f.dp.toPx())
+                            },
+                            onDrawSurface = { drawRect(navBarGlassColor) }
                         )
+                ) {
+                    NavigationBar(color = Color.Transparent, showDivider = false) {
+                        miuixTabs.forEach { item ->
+                            NavigationBarItem(
+                                selected = currentTab == item.key,
+                                onClick = { onTabChange(item.key) },
+                                icon = item.icon,
+                                label = item.label
+                            )
+                        }
                     }
                 }
             }
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) { pages() }
         }
     }
 }
@@ -530,6 +584,82 @@ private fun RowScope.MiuixLiquidGlassTabItems(
     }
 }// ================= 设备页 =================
 
+/** 顶栏内容高度：原 TopAppBar 背景条缩短 40% 后的高度（不含状态栏）。 */
+private val MiuixTopBarContentHeight = 40.dp
+
+/**
+ * miuix 顶栏：背景常驻（提供 backdrop 时为毛玻璃模糊，否则纯 surface），
+ * 图层位于页面内容上方；上滑时居中加粗小标题淡入上移。
+ */
+@Composable
+private fun MiuixCollapsingTopBar(
+    title: String,
+    scrollProgress: State<Float>,
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop? = null
+) {
+    val density = LocalDensity.current
+    val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
+    val sp = scrollProgress.value
+    val isLight = !isSystemInDarkTheme()
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(statusBarHeightDp + MiuixTopBarContentHeight)
+            .then(
+                if (backdrop != null) Modifier.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RectangleShape },
+                    effects = {
+                        vibrancy()
+                        blur(14f.dp.toPx())
+                    },
+                    onDrawSurface = {
+                        drawRect(
+                            if (isLight) Color.White.copy(alpha = 0.6f)
+                            else Color(0xFF121212).copy(alpha = 0.6f)
+                        )
+                    }
+                ) else Modifier.background(MiuixTheme.colorScheme.surface)
+            ),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Text(
+            text = title,
+            style = MiuixTheme.textStyles.main,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .graphicsLayer {
+                    alpha = sp
+                    translationY = (1f - sp) * 14.dp.toPx()
+                }
+        )
+    }
+}
+
+/**
+ * 页面左上角大标题：默认位置固定；上滑时向上淡出。
+ * 标题下方预留 5px 固定间距，作为后续内容的默认起始位置。
+ */
+@Composable
+private fun MiuixPageTitle(title: String, scrollProgress: State<Float>) {
+    val density = LocalDensity.current
+    val contentGap = with(density) { 5.toDp() }
+    val sp = scrollProgress.value
+    Text(
+        text = title,
+        style = MiuixTheme.textStyles.title1,
+        modifier = Modifier
+            .padding(start = 16.dp, top = 4.dp)
+            .padding(bottom = 4.dp + contentGap)
+            .graphicsLayer {
+                alpha = 1f - sp
+                translationY = -sp * 24.dp.toPx()
+            }
+    )
+}
+
 private data class MiuixDeviceUi(
     val peers: List<PeerState>,
     val bluetoothEnabled: Boolean,
@@ -539,7 +669,7 @@ private data class MiuixDeviceUi(
 )
 
 @Composable
-private fun MiuixDevicesScreen(manager: BleRelayManager) {
+private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: MutableState<Float>) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -679,11 +809,26 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
         }
     }
 
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val titleFadePx = with(density) { 56.dp.toPx() }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (index, offset) ->
+                scrollProgress.value = if (index > 0) 1f
+                else (offset / titleFadePx).coerceIn(0f, 1f)
+            }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 96.dp),
+        state = listState,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 4.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
+        item(key = "page-title") {
+            MiuixPageTitle("设备", scrollProgress)
+        }
         item {
             MiuixCard {
                 MiuixScanRow(manager, state)
@@ -882,6 +1027,12 @@ private fun MiuixAppsScreen() {
     }
 
     Column(Modifier.fillMaxSize()) {
+        // 应用页头部固定不滚动，页面大标题固定显示（不接入滚动淡入）
+        Text(
+            text = "应用",
+            style = MiuixTheme.textStyles.title1,
+            modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 9.dp)
+        )
         MiuixCard {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
@@ -952,7 +1103,11 @@ private fun MiuixAppsScreen() {
 // ================= 设置页 =================
 
 @Composable
-private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Boolean) -> Unit) {
+private fun MiuixSettingsScreen(
+    glassBarEnabled: Boolean,
+    onGlassBarChanged: (Boolean) -> Unit,
+    scrollProgress: MutableState<Float>
+) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     var deviceName by remember { mutableStateOf(repo.resolvedDeviceName()) }
@@ -977,10 +1132,20 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
 
     val manager = remember { BleRelayManager.get(context) }
 
+    val scrollState = rememberScrollState()
+    val density = LocalDensity.current
+    val titleFadePx = with(density) { 56.dp.toPx() }
+    LaunchedEffect(scrollState) {
+        snapshotFlow { scrollState.value }.collect {
+            scrollProgress.value = (it / titleFadePx).coerceIn(0f, 1f)
+        }
+    }
+
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
+        MiuixPageTitle("设置", scrollProgress)
         MiuixSectionTitle("设备名称")
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
