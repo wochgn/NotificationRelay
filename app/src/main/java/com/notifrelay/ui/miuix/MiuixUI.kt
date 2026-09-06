@@ -709,11 +709,16 @@ private fun MiuixCollapsingTopBar(
  * 标题下方预留 5px 固定间距，作为后续内容的默认起始位置。
  */
 @Composable
-private fun MiuixPageTitle(title: String, scrollProgress: State<Float>) {
+private fun MiuixPageTitle(
+    title: String,
+    scrollProgress: State<Float>,
+    lifted: Boolean = false
+) {
     val density = LocalDensity.current
     val contentGap = with(density) { 5.toDp() }
     // 视觉补偿：title1 大字号字形自带左侧留白，累计左移 6px 对齐卡片内文字
     val visualCompensation = with(density) { 6.toDp() }
+    val lift = with(density) { if (lifted) -5.toDp() else 0.dp }
     val sp = scrollProgress.value
     Text(
         text = title,
@@ -723,7 +728,7 @@ private fun MiuixPageTitle(title: String, scrollProgress: State<Float>) {
             .padding(bottom = 4.dp + contentGap)
             .graphicsLayer {
                 alpha = 1f - sp
-                translationY = -sp * 24.dp.toPx()
+                translationY = -sp * 24.dp.toPx() + lift.toPx()
             }
     )
 }
@@ -895,7 +900,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         item(key = "page-title") {
-            MiuixPageTitle("设备", scrollProgress)
+            MiuixPageTitle("设备", scrollProgress, lifted = true)
         }
         item {
             MiuixCard {
@@ -1100,11 +1105,15 @@ private fun MiuixAppsScreen() {
         Text(
             text = "应用",
             style = MiuixTheme.textStyles.title1,
-            modifier = Modifier.padding(
-                start = 28.dp - with(density) { 6.toDp() },
-                top = 4.dp,
-                bottom = 9.dp
-            )
+            modifier = Modifier
+                .padding(
+                    start = 28.dp - with(density) { 6.toDp() },
+                    top = 4.dp,
+                    bottom = 9.dp
+                )
+                .graphicsLayer {
+                    translationY = -with(density) { 5.toDp() }.toPx()
+                }
         )
         MiuixCard {
             Row(
