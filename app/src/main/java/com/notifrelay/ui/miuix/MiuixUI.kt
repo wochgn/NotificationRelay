@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -283,23 +284,48 @@ private fun MiuixLiquidGlassBottomBar(
     ) {
         val itemWidth = maxWidth / miuixTabs.size
         val selectedIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
+        // pressedIndex：按下/拖经的页签；dragX：手指实时位置（NaN 表示未按压）
         var pressedIndex by remember { mutableIntStateOf(-1) }
-        val indicatorIndex = if (pressedIndex >= 0) pressedIndex else selectedIndex
+        var dragX by remember { mutableStateOf(Float.NaN) }
+        val isPressing = pressedIndex >= 0
+        val restingIndex = if (isPressing) pressedIndex else selectedIndex
+
+        // 选项框：按压时跟随手指移动，松手回弹停驻到目标页签
+        val density = LocalDensity.current
         val indicatorLeft by animateDpAsState(
-            targetValue = itemWidth * indicatorIndex + 4.dp,
+            targetValue = if (isPressing && !dragX.isNaN()) {
+                with(density) { dragX.toDp() }.coerceIn(itemWidth / 2, maxWidth - itemWidth / 2) - itemWidth / 2
+            } else {
+                itemWidth * restingIndex
+            },
             animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow
+                dampingRatio = if (isPressing) Spring.DampingRatioNoBouncy else Spring.DampingRatioMediumBouncy,
+                stiffness = if (isPressing) 1200f else Spring.StiffnessMediumLow
             ),
             label = "indicator"
         )
+        // 按压时选项框放大并向上浮起，超出玻璃栏边界
+        val liftProgress by animateFloatAsState(
+            targetValue = if (isPressing) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
+            ),
+            label = "lift"
+        )
 
-        // 选中指示器：按下即滑向目标页签，松手停驻在选中页签
+        // 选中/按压选项框：放大浮起的胶囊
         Box(
             Modifier
                 .offset(x = indicatorLeft)
-                .width(itemWidth - 8.dp)
+                .width(itemWidth)
                 .height(48.dp)
+                .graphicsLayer {
+                    val s = 1f + 0.22f * liftProgress
+                    scaleX = s
+                    scaleY = s
+                    translationY = -7.dp.toPx() * liftProgress
+                }
                 .clip(Capsule())
                 .background(
                     if (isLight) Color.Black.copy(alpha = 0.28f)
@@ -315,38 +341,36 @@ private fun MiuixLiquidGlassBottomBar(
                         fun indexAt(x: Float) =
                             (x / (size.width / miuixTabs.size.toFloat())).toInt().coerceIn(0, miuixTabs.lastIndex)
                         pressedIndex = indexAt(down.position.x)
+                        dragX = down.position.x
                         drag(down.id) { change ->
                             change.consume()
+                            dragX = change.position.x
                             pressedIndex = indexAt(change.position.x)
                         }
                         onSelect(miuixTabs[pressedIndex.coerceAtLeast(0)].key)
                         pressedIndex = -1
+                        dragX = Float.NaN
                     }
                 },
             verticalAlignment = Alignment.CenterVertically
         ) {
             miuixTabs.forEachIndexed { index, item ->
                 val selected = currentTab == item.key
-                val interaction = remember { MutableInteractionSource() }
-                val pressed by interaction.collectIsPressedAsState()
-                val iconScale by animateFloatAsState(
-                    targetValue = if (pressed) 1.2f else 1f,
+                val pressed = pressedIndex == index
+                val itemScale by animateFloatAsState(
+                    targetValue = if (pressed) 1.12f else 1f,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMedium
                     ),
-                    label = "iconScale"
+                    label = "itemScale"
                 )
-                LaunchedEffect(pressed) {
-                    if (pressed) pressedIndex = index
-                }
-                val lifted = pressed
                 Column(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .clickable(
-                            interactionSource = interaction,
+                            interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) { onSelect(item.key) },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -358,10 +382,9 @@ private fun MiuixLiquidGlassBottomBar(
                         modifier = Modifier
                             .size(24.dp)
                             .graphicsLayer {
-                                val liftScale = if (lifted) 1.45f else 1f
-                                scaleX = iconScale * liftScale
-                                scaleY = iconScale * liftScale
-                                translationY = if (lifted) -6.dp.toPx() else 0f
+                                scaleX = itemScale
+                                scaleY = itemScale
+                                translationY = -(itemScale - 1f) * 40f
                             },
                         tint = if (selected) Color(0xFF0088FF)
                         else MiuixTheme.colorScheme.onSurfaceContainer
@@ -827,7 +850,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(5.6.dp)
     ) {
         SmallTitle(text = "设备名称")
         MiuixCard {
@@ -907,7 +930,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
             }
         }
 
-        SmallTitle(text = "主题与颜色", modifier = Modifier.padding(top = 6.dp))
+        SmallTitle(text = "主题与颜色", modifier = Modifier.padding(top = 4.dp))
         MiuixCard {
             top.yukonga.miuix.kmp.preference.SwitchPreference(
                 title = "MIUIX 风格",
