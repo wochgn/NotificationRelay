@@ -311,9 +311,8 @@ private fun MiuixLiquidGlassBottomBar(
             label = "liquidPress"
         )
         // 用尺寸变化替代 graphicsLayer 缩放：胶囊放大时内部折射内容保持原大小
-        val growFactor = 1f + (78f / 56f - 1f) * pressProgress
-        val boxWidth = itemWidth * growFactor
-        val boxHeight = 56.dp * growFactor
+        val boxWidth = itemWidth * (1f + 0.2f * pressProgress)
+        val boxHeight = 56.dp * (1f + 0.5f * pressProgress)
 
         // 图层顺序：基础玻璃栏（模糊+文字图案，整体录入 tabsBackdrop）→ 选项框（折射层，折射栏自身）。
         Row(
@@ -351,14 +350,22 @@ private fun MiuixLiquidGlassBottomBar(
                     shape = { Capsule() },
                     effects = {
                         if (pressProgress > 0.01f) {
+                            // 加厚折射环带，覆盖选项框内的栏玻璃与文字图案
                             lens(
-                                10f.dp.toPx() * pressProgress,
-                                14f.dp.toPx() * pressProgress,
+                                24f.dp.toPx() * pressProgress,
+                                32f.dp.toPx() * pressProgress,
                                 chromaticAberration = true
                             )
                         }
                     },
-                    shadow = { Shadow(alpha = pressProgress) }
+                    shadow = { Shadow(alpha = pressProgress) },
+                    onDrawSurface = {
+                        // 静止时的轻底色，增强选中项可读性
+                        drawRect(
+                            if (isLight) Color.Black.copy(alpha = 0.06f)
+                            else Color.White.copy(alpha = 0.08f)
+                        )
+                    }
                 )
         )
 
