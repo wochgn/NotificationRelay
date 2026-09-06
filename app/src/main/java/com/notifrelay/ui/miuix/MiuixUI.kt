@@ -18,6 +18,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -210,6 +211,7 @@ private fun MiuixAppContent(
     val pageOrder = remember { miuixTabs.mapIndexed { index, item -> item.key to index }.toMap() }
     val pages: @Composable () -> Unit = {
         AnimatedContent(
+            modifier = Modifier.fillMaxSize(),
             targetState = currentTab,
             transitionSpec = {
                 // 跨越多个 tab 时按间隔成比例平移：如设备→设置经过应用页位置
@@ -217,25 +219,25 @@ private fun MiuixAppContent(
                 val to = pageOrder[targetState] ?: 0
                 val direction = if (to >= from) 1 else -1
                 val span = abs(to - from).coerceAtLeast(1)
+                val moveSpec = spring<IntOffset>(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
                 val enter = slideInHorizontally(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
+                    animationSpec = moveSpec,
                     initialOffsetX = { width -> direction * width * span }
                 )
                 val exit = slideOutHorizontally(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
+                    animationSpec = moveSpec,
                     targetOffsetX = { width -> -direction * width * span }
                 )
                 enter togetherWith exit
             },
             label = "miuixPageSlide"
         ) { page ->
-            when (page) {
+            // 每个页面自带不透明实底，平移时新旧页面为完整页面层次滑动
+            Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+                when (page) {
                 "devices" -> MiuixDevicesScreen(manager, deviceScrollProgress)
                 "apps" -> MiuixAppsScreen()
                 "settings" -> MiuixSettingsScreen(
@@ -246,6 +248,7 @@ private fun MiuixAppContent(
                     },
                     scrollProgress = settingsScrollProgress
                 )
+            }
             }
         }
     }
