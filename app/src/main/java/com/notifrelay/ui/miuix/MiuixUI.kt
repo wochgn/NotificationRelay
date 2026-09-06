@@ -65,7 +65,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
@@ -74,7 +73,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -105,13 +103,11 @@ import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import top.yukonga.miuix.kmp.basic.NavigationRail
@@ -279,10 +275,6 @@ private fun MiuixLiquidGlassBottomBar(
     val containerColor =
         if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
         else Color(0xFF121212).copy(alpha = 0.4f)
-    val indicatorTint =
-        if (isLight) Color.Black.copy(alpha = 0.1f)
-        else Color.White.copy(alpha = 0.1f)
-    val tabsBackdrop = rememberLayerBackdrop()
 
     BoxWithConstraints(
         modifier = modifier,
@@ -303,18 +295,19 @@ private fun MiuixLiquidGlassBottomBar(
         val indicatorLeft by animateDpAsState(
             targetValue = targetX,
             animationSpec = spring(
-                dampingRatio = if (isPressing) 1f else Spring.DampingRatioMediumBouncy,
-                stiffness = if (isPressing) 1000f else 300f
+                dampingRatio = if (isPressing) 0.75f else Spring.DampingRatioMediumBouncy,
+                stiffness = if (isPressing) 900f else 300f
             ),
             label = "liquidIndicatorX"
         )
+        // Q 弹液态效果：放大/回弹均带弹性过冲
         val pressProgress by animateFloatAsState(
             targetValue = if (isPressing) 1f else 0f,
-            animationSpec = spring(dampingRatio = 1f, stiffness = 1000f),
+            animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
             label = "liquidPress"
         )
 
-        // 基础玻璃栏与浮起选项框必须是兄弟节点，避免外层 Capsule 裁剪放大内容。
+        // 基础玻璃栏负责全部模糊，文字与图案绘制在这一层，不随选项框缩放。
         Row(
             Modifier
                 .align(Alignment.Center)
@@ -336,21 +329,7 @@ private fun MiuixLiquidGlassBottomBar(
             MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
         }
 
-        // 隐藏的标签采样层供移动选项框组合采样，保留图标与文字的折射轮廓。
-        Row(
-            Modifier
-                .align(Alignment.Center)
-                .clearAndSetSemantics { }
-                .alpha(0f)
-                .layerBackdrop(tabsBackdrop)
-                .height(56.dp)
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = {})
-        }
-
+        // 选项框：位于 tab 栏之上的透明玻璃层，有折射无模糊，仅按压时放大并投影浮起。
         Box(
             Modifier
                 .offset(x = indicatorLeft)
@@ -363,26 +342,19 @@ private fun MiuixLiquidGlassBottomBar(
                     scaleY = scale
                 }
                 .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
+                    backdrop = backdrop,
                     shape = { Capsule() },
                     effects = {
-                        lens(
-                            10f.dp.toPx() * pressProgress,
-                            14f.dp.toPx() * pressProgress,
-                            chromaticAberration = true
-                        )
+                        lens(12f.dp.toPx(), 40f.dp.toPx())
+                        if (pressProgress > 0.01f) {
+                            lens(
+                                10f.dp.toPx() * pressProgress,
+                                14f.dp.toPx() * pressProgress,
+                                chromaticAberration = true
+                            )
+                        }
                     },
-                    shadow = { Shadow(alpha = pressProgress) },
-                    innerShadow = {
-                        InnerShadow(
-                            radius = 8.dp * pressProgress,
-                            alpha = pressProgress
-                        )
-                    },
-                    onDrawSurface = {
-                        drawRect(indicatorTint, alpha = 1f - pressProgress)
-                        drawRect(Color.Black.copy(alpha = 0.03f * pressProgress))
-                    }
+                    shadow = { Shadow(alpha = pressProgress) }
                 )
         )
 
