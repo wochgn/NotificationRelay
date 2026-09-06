@@ -53,30 +53,41 @@ import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
@@ -95,6 +106,7 @@ import com.notifrelay.SavedDevice
 import com.notifrelay.SettingsRepository
 import com.notifrelay.setUiStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
@@ -109,6 +121,8 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import top.yukonga.miuix.kmp.basic.NavigationRail
@@ -122,6 +136,9 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
 
@@ -261,9 +278,9 @@ private fun MiuixAppContent(
 }
 
 /**
- * 液态玻璃底栏（Kyant0/AndroidLiquidGlass backdrop 实现）：
- * 胶囊形、宽度自适应（大屏 40% / 手机 80%）、图标模式，实时折射页面内容。
- * 折射/色散效果需要 Android 13+，低版本自动降级为模糊与活力效果。
+ * 液态玻璃底栏：移植 KernelSU FloatingBottomBar（改编自 miuix example IosLiquidGlassNavigationBar，Apache-2.0）。
+ * 三层结构：基础玻璃栏（模糊+内容，按压时整栏微放大）→ 隐藏标签采样层 → 移动玻璃指示器（折射页面+标签）。
+ * 交互为阻尼拖拽：拖动指示器连续跟随手指，松手吸附最近页签；速度驱动指示器横向拉伸的液态变形。
  */
 @Composable
 private fun MiuixLiquidGlassBottomBar(
@@ -276,130 +293,203 @@ private fun MiuixLiquidGlassBottomBar(
     val containerColor =
         if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
         else Color(0xFF121212).copy(alpha = 0.4f)
-    // 采样整条已渲染的 tab 栏（玻璃+文字图案），供选项框折射
     val tabsBackdrop = rememberLayerBackdrop()
+    val density = LocalDensity.current
+    val animationScope = rememberCoroutineScope()
 
-    BoxWithConstraints(
-        modifier = modifier,
-        contentAlignment = Alignment.CenterStart
-    ) {
-        val density = LocalDensity.current
-        val itemWidth = (maxWidth - 8.dp) / miuixTabs.size
-        val selectedIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
-        var pressedIndex by remember { mutableIntStateOf(-1) }
-        var dragX by remember { mutableStateOf(Float.NaN) }
-        val isPressing = pressedIndex >= 0
-        // 选项框中心点：拖动时跟随手指，静止时停驻选中项中心
-        val targetCenterX = if (isPressing && !dragX.isNaN()) {
-            with(density) { dragX.toDp() }
-                .coerceIn(4.dp + itemWidth / 2, maxWidth - 4.dp - itemWidth / 2)
-        } else {
-            4.dp + itemWidth * (selectedIndex + 0.5f)
+    var tabWidthPx by remember { mutableFloatStateOf(0f) }
+    var totalWidthPx by remember { mutableFloatStateOf(0f) }
+
+    // 拖到栏边缘时整栏的橡皮筋偏移
+    val offsetAnimation = remember { Animatable(0f) }
+    val rubberBandPx = with(density) { 4.dp.toPx() }
+    val panelOffset by remember(rubberBandPx) {
+        derivedStateOf {
+            if (totalWidthPx == 0f) 0f
+            else {
+                val fraction = (offsetAnimation.value / totalWidthPx).coerceIn(-1f, 1f)
+                rubberBandPx * sign(fraction) * EaseOut.transform(abs(fraction))
+            }
         }
-        val centerX by animateDpAsState(
-            targetValue = targetCenterX,
-            animationSpec = spring(
-                dampingRatio = if (isPressing) 0.75f else Spring.DampingRatioMediumBouncy,
-                stiffness = if (isPressing) 900f else 300f
-            ),
-            label = "liquidIndicatorCenter"
-        )
-        // Q 弹液态效果：放大/回弹均带弹性过冲
-        val pressProgress by animateFloatAsState(
-            targetValue = if (isPressing) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.5f, stiffness = 400f),
-            label = "liquidPress"
-        )
-        // 按压时选项框大小等比增加 40%，折射参数保持不变
-        val boxWidth = itemWidth * (1f + 0.4f * pressProgress)
-        val boxHeight = 56.dp * (1f + 0.4f * pressProgress)
+    }
 
-        // 图层顺序：基础玻璃栏（模糊+文字图案，整体录入 tabsBackdrop）→ 选项框（折射层，折射栏自身）。
+    val selectedIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
+    var currentIndex by remember { mutableIntStateOf(selectedIndex) }
+    val onSelectedUpdated by rememberUpdatedState(onSelect)
+
+    fun indexAt(positionX: Float): Int {
+        if (tabWidthPx == 0f) return currentIndex
+        val horizontalPaddingPx = with(density) { 4.dp.toPx() }
+        return ((positionX - horizontalPaddingPx) / tabWidthPx).toInt()
+            .coerceIn(0, miuixTabs.lastIndex)
+    }
+
+    val dampedDragAnimation = remember(animationScope) {
+        DampedDragAnimation(
+            animationScope = animationScope,
+            initialValue = selectedIndex.toFloat(),
+            valueRange = 0f..miuixTabs.lastIndex.toFloat(),
+            visibilityThreshold = 0.001f,
+            initialScale = 1f,
+            pressedScale = 78f / 56f,
+            canDrag = { offset -> offset.x in 0f..totalWidthPx },
+            onDragStarted = { position ->
+                updateValue(indexAt(position.x).toFloat())
+            },
+            onDragStopped = {
+                val targetIndex = targetValue.roundToInt().coerceIn(0, miuixTabs.lastIndex)
+                if (currentIndex != targetIndex) {
+                    currentIndex = targetIndex
+                    onSelectedUpdated(miuixTabs[targetIndex].key)
+                }
+                updateValue(targetIndex.toFloat())
+                animationScope.launch {
+                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                }
+            },
+            onDrag = { _, dragAmount ->
+                if (tabWidthPx > 0f && dragAmount.x != 0f) {
+                    updateValue(
+                        (targetValue + dragAmount.x / tabWidthPx)
+                            .coerceIn(0f, miuixTabs.lastIndex.toFloat())
+                    )
+                    animationScope.launch {
+                        offsetAnimation.snapTo(offsetAnimation.value + dragAmount.x)
+                    }
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(selectedIndex) {
+        if (currentIndex != selectedIndex) {
+            currentIndex = selectedIndex
+            dampedDragAnimation.animateToValue(selectedIndex.toFloat())
+        }
+    }
+
+    // 标签项不携带 clickable：点击统一由阻尼拖拽手势处理（按下定位、抬起吸附切换页面），
+    // 避免上层隐藏采样层的透明副本拦截触摸事件。
+    val tabScale = { lerp(1f, 1.2f, dampedDragAnimation.pressProgress) }
+
+    Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+        // 基础玻璃栏：模糊 + 内容，按压时整栏轻微放大
         Row(
             Modifier
-                .align(Alignment.Center)
-                .height(64.dp)
-                .fillMaxWidth()
-                .layerBackdrop(tabsBackdrop)
+                .onGloballyPositioned { coords ->
+                    totalWidthPx = coords.size.width.toFloat()
+                    val contentWidthPx = totalWidthPx - with(density) { 8.dp.toPx() }
+                    tabWidthPx = (contentWidthPx / miuixTabs.size).coerceAtLeast(0f)
+                }
+                .graphicsLayer { translationX = panelOffset }
                 .drawBackdrop(
                     backdrop = backdrop,
                     shape = { Capsule() },
                     effects = {
                         vibrancy()
-                        blur(14f.dp.toPx())
-                        lens(12f.dp.toPx(), 40f.dp.toPx())
+                        blur(4f.dp.toPx())
+                        lens(
+                            refractionHeight = 24f.dp.toPx(),
+                            refractionAmount = 24f.dp.toPx()
+                        )
                     },
+                    highlight = { Highlight.Default.copy(alpha = 0.75f) },
+                    layerBlock = {
+                        val width = size.width.coerceAtLeast(1f)
+                        val s = lerp(1f, 1f + 16f.dp.toPx() / width, dampedDragAnimation.pressProgress)
+                        scaleX = s
+                        scaleY = s
+                    },
+                    shadow = { Shadow(alpha = if (isLight) 0.1f else 0.2f) },
                     onDrawSurface = { drawRect(containerColor) }
                 )
+                .then(dampedDragAnimation.modifier)
+                .height(64.dp)
+                .fillMaxWidth()
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
+            MiuixLiquidGlassTabItems(currentTab = currentTab, contentScale = tabScale)
         }
 
-        // 选项框：位于 tab 栏之上的透明层。静止时完全透明不折射；拖动/按压时透镜激活，
-        // 折射选项框边缘覆盖的栏内容；放大只改变胶囊尺寸，内容保持原大小。
-        Box(
-            Modifier
-                .offset(x = centerX - boxWidth / 2)
-                .align(Alignment.CenterStart)
-                .width(boxWidth)
-                .height(boxHeight)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
-                    shape = { Capsule() },
-                    effects = {
-                        if (pressProgress > 0.01f) {
-                            // 加厚折射环带，覆盖选项框内的栏玻璃与文字图案
-                            lens(
-                                24f.dp.toPx() * pressProgress,
-                                32f.dp.toPx() * pressProgress,
-                                chromaticAberration = true
-                            )
-                        }
-                    },
-                    shadow = { Shadow(alpha = pressProgress) },
-                    onDrawSurface = {
-                        // 静止时的轻底色，增强选中项可读性
-                        drawRect(
-                            if (isLight) Color.Black.copy(alpha = 0.06f)
-                            else Color.White.copy(alpha = 0.08f)
-                        )
-                    }
-                )
-        )
-
+        // 隐藏标签采样层：供移动指示器折射标签内容
         Row(
             Modifier
-                .align(Alignment.Center)
-                .height(64.dp)
-                .fillMaxWidth()
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val horizontalPadding = with(density) { 4.dp.toPx() }
-                        val segmentWidth = (size.width - horizontalPadding * 2f) / miuixTabs.size
-                        fun clampedX(x: Float) = x.coerceIn(
-                            horizontalPadding + segmentWidth / 2f,
-                            size.width - horizontalPadding - segmentWidth / 2f
+                .clearAndSetSemantics { }
+                .alpha(0f)
+                .layerBackdrop(tabsBackdrop)
+                .graphicsLayer { translationX = panelOffset }
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { Capsule() },
+                    effects = {
+                        vibrancy()
+                        blur(4f.dp.toPx())
+                        lens(
+                            refractionHeight = 24f.dp.toPx(),
+                            refractionAmount = 24f.dp.toPx()
                         )
-                        fun indexAt(x: Float) =
-                            ((x - horizontalPadding) / segmentWidth).toInt()
-                                .coerceIn(0, miuixTabs.lastIndex)
-                        dragX = clampedX(down.position.x)
-                        pressedIndex = indexAt(dragX)
-                        drag(down.id) { change ->
-                            dragX = clampedX(change.position.x)
-                            pressedIndex = indexAt(dragX)
-                            change.consume()
-                        }
-                        onSelect(miuixTabs[pressedIndex.coerceAtLeast(0)].key)
-                        pressedIndex = -1
-                        dragX = Float.NaN
-                    }
-                }
+                    },
+                    onDrawSurface = { drawRect(containerColor) }
+                )
+                .height(56.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            miuixTabs.forEach { Spacer(Modifier.weight(1f).fillMaxHeight()) }
+            MiuixLiquidGlassTabItems(currentTab = currentTab, contentScale = tabScale)
+        }
+
+        // 移动玻璃指示器：折射页面+标签内容，按压放大并带速度液态变形
+        if (tabWidthPx > 0f) {
+            val tabWidthDp = with(density) { tabWidthPx.toDp() }
+            Box(
+                Modifier
+                    .padding(horizontal = 4.dp)
+                    .graphicsLayer {
+                        val progressOffset = dampedDragAnimation.value * tabWidthPx
+                        translationX = progressOffset + panelOffset
+                    }
+                    .drawBackdrop(
+                        backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
+                        shape = { Capsule() },
+                        effects = {
+                            val progress = dampedDragAnimation.pressProgress
+                            if (progress > 0.01f) {
+                                lens(
+                                    refractionHeight = 10f.dp.toPx() * progress,
+                                    refractionAmount = 14f.dp.toPx() * progress,
+                                    chromaticAberration = true
+                                )
+                            }
+                        },
+                        highlight = { Highlight.Default.copy(alpha = dampedDragAnimation.pressProgress) },
+                        layerBlock = {
+                            scaleX = dampedDragAnimation.scaleX
+                            scaleY = dampedDragAnimation.scaleY
+                            val velocity = dampedDragAnimation.velocity / 10f
+                            scaleX /= 1f - (velocity * 0.75f).coerceIn(-0.2f, 0.2f)
+                            scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
+                        },
+                        innerShadow = {
+                            InnerShadow(
+                                radius = 8f.dp * dampedDragAnimation.pressProgress,
+                                alpha = dampedDragAnimation.pressProgress
+                            )
+                        },
+                        onDrawSurface = {
+                            val progress = dampedDragAnimation.pressProgress
+                            drawRect(
+                                color = if (isLight) Color.Black.copy(alpha = 0.1f)
+                                else Color.White.copy(alpha = 0.1f),
+                                alpha = 1f - progress
+                            )
+                            drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                        }
+                    )
+                    .height(56.dp)
+                    .width(tabWidthDp)
+            )
         }
     }
 }
@@ -407,18 +497,19 @@ private fun MiuixLiquidGlassBottomBar(
 @Composable
 private fun RowScope.MiuixLiquidGlassTabItems(
     currentTab: String,
-    onSelect: (String) -> Unit
+    contentScale: () -> Float
 ) {
-    miuixTabs.forEach { item ->
+    miuixTabs.forEachIndexed { index, item ->
         val selected = currentTab == item.key
         Column(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onSelect(item.key) },
+                .graphicsLayer {
+                    val scale = contentScale()
+                    scaleX = scale
+                    scaleY = scale
+                },
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -436,8 +527,7 @@ private fun RowScope.MiuixLiquidGlassTabItems(
             )
         }
     }
-}
-// ================= 设备页 =================
+}// ================= 设备页 =================
 
 private data class MiuixDeviceUi(
     val peers: List<PeerState>,
