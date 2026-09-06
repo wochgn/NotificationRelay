@@ -709,8 +709,8 @@ private fun MiuixCollapsingTopBar(
 private fun MiuixPageTitle(title: String, scrollProgress: State<Float>) {
     val density = LocalDensity.current
     val contentGap = with(density) { 5.toDp() }
-    // 视觉补偿：title1 大字号字形自带约 2px 左侧留白，左移对齐卡片内文字
-    val visualCompensation = with(density) { 2.toDp() }
+    // 视觉补偿：title1 大字号字形自带左侧留白，累计左移 6px 对齐卡片内文字
+    val visualCompensation = with(density) { 6.toDp() }
     val sp = scrollProgress.value
     Text(
         text = title,
@@ -1098,7 +1098,7 @@ private fun MiuixAppsScreen() {
             text = "应用",
             style = MiuixTheme.textStyles.title1,
             modifier = Modifier.padding(
-                start = 28.dp - with(density) { 2.toDp() },
+                start = 28.dp - with(density) { 6.toDp() },
                 top = 4.dp,
                 bottom = 9.dp
             )
