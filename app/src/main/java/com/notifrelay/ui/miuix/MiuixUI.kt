@@ -10,15 +10,10 @@ import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -208,47 +203,42 @@ private fun MiuixAppContent(
         "settings" -> settingsScrollProgress
         else -> remember { mutableStateOf(0f) }
     }
-    val pageOrder = remember { miuixTabs.mapIndexed { index, item -> item.key to index }.toMap() }
+    // 页面连续索引动画：三个页面常驻组合，动画值经过中间索引时中间页自然掠过
+    val currentTabIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
+    val pageIndexAnim = remember { Animatable(currentTabIndex.toFloat()) }
+    LaunchedEffect(currentTab) {
+        pageIndexAnim.animateTo(
+            currentTabIndex.toFloat(),
+            spring(dampingRatio = 0.85f, stiffness = 800f)
+        )
+    }
     val pages: @Composable () -> Unit = {
-        AnimatedContent(
-            modifier = Modifier.fillMaxSize(),
-            targetState = currentTab,
-            transitionSpec = {
-                // 跨越多个 tab 时按间隔成比例平移：如设备→设置经过应用页位置
-                val from = pageOrder[initialState] ?: 0
-                val to = pageOrder[targetState] ?: 0
-                val direction = if (to >= from) 1 else -1
-                val span = abs(to - from).coerceAtLeast(1)
-                val moveSpec = spring<IntOffset>(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow
-                )
-                val enter = slideInHorizontally(
-                    animationSpec = moveSpec,
-                    initialOffsetX = { width -> direction * width * span }
-                )
-                val exit = slideOutHorizontally(
-                    animationSpec = moveSpec,
-                    targetOffsetX = { width -> -direction * width * span }
-                )
-                enter togetherWith exit
-            },
-            label = "miuixPageSlide"
-        ) { page ->
-            // 每个页面自带不透明实底，平移时新旧页面为完整页面层次滑动
-            Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
-                when (page) {
-                "devices" -> MiuixDevicesScreen(manager, deviceScrollProgress)
-                "apps" -> MiuixAppsScreen()
-                "settings" -> MiuixSettingsScreen(
-                    glassBarEnabled = glassBarEnabled,
-                    onGlassBarChanged = {
-                        glassBarEnabled = it
-                        repo.liquidGlassBarEnabled = it
-                    },
-                    scrollProgress = settingsScrollProgress
-                )
-            }
+        Box(Modifier.fillMaxSize()) {
+            miuixTabs.forEachIndexed { index, tabItem ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MiuixTheme.colorScheme.surface)
+                        .graphicsLayer {
+                            val offset = index - pageIndexAnim.value
+                            translationX = offset * size.width
+                            // 仅显示与动画值相邻的页面，远处页面隐藏避免越界绘制
+                            alpha = if (offset in -1f..1f) 1f else 0f
+                        }
+                ) {
+                    when (tabItem.key) {
+                        "devices" -> MiuixDevicesScreen(manager, deviceScrollProgress)
+                        "apps" -> MiuixAppsScreen()
+                        "settings" -> MiuixSettingsScreen(
+                            glassBarEnabled = glassBarEnabled,
+                            onGlassBarChanged = {
+                                glassBarEnabled = it
+                                repo.liquidGlassBarEnabled = it
+                            },
+                            scrollProgress = settingsScrollProgress
+                        )
+                    }
+                }
             }
         }
     }
