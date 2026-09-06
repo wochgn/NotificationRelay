@@ -528,7 +528,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
@@ -729,7 +729,7 @@ private fun MiuixAppsScreen() {
     }
 
     Column(Modifier.fillMaxSize()) {
-        MiuixCard(modifier = Modifier.padding(horizontal = 12.dp)) {
+        MiuixCard {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
