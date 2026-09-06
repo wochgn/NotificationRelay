@@ -10,10 +10,14 @@ import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -195,19 +199,49 @@ private fun MiuixAppContent(
     BackHandler { (context as? Activity)?.finish() }
 
     val title = tab.label
-    val scrollProgress = remember { mutableStateOf(0f) }
+    val deviceScrollProgress = remember { mutableStateOf(0f) }
+    val settingsScrollProgress = remember { mutableStateOf(0f) }
+    val scrollProgress: State<Float> = when (currentTab) {
+        "devices" -> deviceScrollProgress
+        "settings" -> settingsScrollProgress
+        else -> remember { mutableStateOf(0f) }
+    }
+    val pageOrder = remember { miuixTabs.mapIndexed { index, item -> item.key to index }.toMap() }
     val pages: @Composable () -> Unit = {
-        when (currentTab) {
-            "devices" -> MiuixDevicesScreen(manager, scrollProgress)
-            "apps" -> MiuixAppsScreen()
-            "settings" -> MiuixSettingsScreen(
-                glassBarEnabled = glassBarEnabled,
-                onGlassBarChanged = {
-                    glassBarEnabled = it
-                    repo.liquidGlassBarEnabled = it
-                },
-                scrollProgress = scrollProgress
-            )
+        AnimatedContent(
+            targetState = currentTab,
+            transitionSpec = {
+                val forward = (pageOrder[targetState] ?: 0) > (pageOrder[initialState] ?: 0)
+                val enter = slideInHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    initialOffsetX = { width -> if (forward) width else -width }
+                )
+                val exit = slideOutHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    targetOffsetX = { width -> if (forward) -width else width }
+                )
+                enter togetherWith exit
+            },
+            label = "miuixPageSlide"
+        ) { page ->
+            when (page) {
+                "devices" -> MiuixDevicesScreen(manager, deviceScrollProgress)
+                "apps" -> MiuixAppsScreen()
+                "settings" -> MiuixSettingsScreen(
+                    glassBarEnabled = glassBarEnabled,
+                    onGlassBarChanged = {
+                        glassBarEnabled = it
+                        repo.liquidGlassBarEnabled = it
+                    },
+                    scrollProgress = settingsScrollProgress
+                )
+            }
         }
     }
 
@@ -233,7 +267,12 @@ private fun MiuixAppContent(
         Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { _ ->
             Box(Modifier.fillMaxSize()) {
                 // 采样层只包含页面内容：顶栏与底栏在采样层外消费玻璃效果，避免自引用
-                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(backdrop)
+                        .background(MiuixTheme.colorScheme.surface)
+                ) {
                     pageArea()
                 }
                 MiuixCollapsingTopBar(
@@ -289,7 +328,12 @@ private fun MiuixAppContent(
         // 关闭液态玻璃底栏的手机布局：贴底全宽标准导航栏，毛玻璃背景，图层位于内容上方
         Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { _ ->
             Box(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(backdrop)
+                        .background(MiuixTheme.colorScheme.surface)
+                ) {
                     pageArea()
                 }
                 MiuixCollapsingTopBar(
@@ -308,14 +352,23 @@ private fun MiuixAppContent(
                             backdrop = backdrop,
                             shape = { RectangleShape },
                             effects = {
+                                // 为全宽底栏扩展采样区域，避免左右边缘和系统导航区模糊缺失
+                                padding = maxOf(padding, 40.dp.toPx())
                                 vibrancy()
                                 blur(14f.dp.toPx())
                             },
                             highlight = { Highlight(alpha = 0f) },
+                            shadow = { Shadow(alpha = 0f) },
+                            innerShadow = { InnerShadow(alpha = 0f) },
                             onDrawSurface = { drawRect(surfaceColor) }
                         )
                 ) {
-                    NavigationBar(color = Color.Transparent, showDivider = false) {
+                    NavigationBar(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Color.Transparent,
+                        showDivider = false,
+                        defaultWindowInsetsPadding = true
+                    ) {
                         miuixTabs.forEach { item ->
                             NavigationBarItem(
                                 selected = currentTab == item.key,
@@ -616,6 +669,8 @@ private fun MiuixCollapsingTopBar(
                         blur(14f.dp.toPx())
                     },
                     highlight = { Highlight(alpha = 0f) },
+                    shadow = { Shadow(alpha = 0f) },
+                    innerShadow = { InnerShadow(alpha = 0f) },
                     onDrawSurface = { drawRect(surfaceColor) }
                 ) else Modifier.background(surfaceColor)
             )
