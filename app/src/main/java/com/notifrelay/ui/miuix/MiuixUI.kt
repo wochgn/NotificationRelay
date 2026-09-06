@@ -275,6 +275,8 @@ private fun MiuixLiquidGlassBottomBar(
     val containerColor =
         if (isLight) Color(0xFFFAFAFA).copy(alpha = 0.4f)
         else Color(0xFF121212).copy(alpha = 0.4f)
+    // 采样整条已渲染的 tab 栏（玻璃+文字图案），供选项框折射
+    val tabsBackdrop = rememberLayerBackdrop()
 
     BoxWithConstraints(
         modifier = modifier,
@@ -307,12 +309,13 @@ private fun MiuixLiquidGlassBottomBar(
             label = "liquidPress"
         )
 
-        // 图层顺序：基础玻璃栏（模糊）→ 选项框（折射层）→ 文字图标内容（最上层，不随选项框缩放）。
+        // 图层顺序：基础玻璃栏（模糊+文字图案，整体录入 tabsBackdrop）→ 选项框（折射层，折射栏自身）。
         Row(
             Modifier
                 .align(Alignment.Center)
                 .height(64.dp)
                 .fillMaxWidth()
+                .layerBackdrop(tabsBackdrop)
                 .drawBackdrop(
                     backdrop = backdrop,
                     shape = { Capsule() },
@@ -323,9 +326,13 @@ private fun MiuixLiquidGlassBottomBar(
                     },
                     onDrawSurface = { drawRect(containerColor) }
                 )
-        ) {}
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
+        }
 
-        // 选项框：位于 tab 栏之上的透明折射层，有折射无模糊，仅按压时放大并投影浮起。
+        // 选项框：位于 tab 栏之上的透明折射层，采样栏自身图像——折射划过的玻璃与内容，不透明化。
         Box(
             Modifier
                 .offset(x = indicatorLeft)
@@ -338,7 +345,7 @@ private fun MiuixLiquidGlassBottomBar(
                     scaleY = scale
                 }
                 .drawBackdrop(
-                    backdrop = backdrop,
+                    backdrop = tabsBackdrop,
                     shape = { Capsule() },
                     effects = {
                         lens(12f.dp.toPx(), 40f.dp.toPx())
@@ -353,18 +360,6 @@ private fun MiuixLiquidGlassBottomBar(
                     shadow = { Shadow(alpha = pressProgress) }
                 )
         )
-
-        // 文字与图案内容绘制在选项框之上，始终完整可见。
-        Row(
-            Modifier
-                .align(Alignment.Center)
-                .height(64.dp)
-                .fillMaxWidth()
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MiuixLiquidGlassTabItems(currentTab = currentTab, onSelect = onSelect)
-        }
 
         Row(
             Modifier
