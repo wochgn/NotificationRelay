@@ -396,7 +396,7 @@ private fun MiuixLiquidGlassBottomBar(
                     highlight = { Highlight.Default.copy(alpha = 0.75f) },
                     layerBlock = {
                         val width = size.width.coerceAtLeast(1f)
-                        val s = lerp(1f, 1f + 16f.dp.toPx() / width, dampedDragAnimation.pressProgress)
+                        val s = lerp(1f, 1f + 6f.dp.toPx() / width, dampedDragAnimation.pressProgress)
                         scaleX = s
                         scaleY = s
                     },
@@ -523,7 +523,8 @@ private fun RowScope.MiuixLiquidGlassTabItems(
             Text(
                 text = item.label,
                 color = if (selected) Color(0xFF0088FF)
-                else MiuixTheme.colorScheme.onSurfaceContainer
+                else MiuixTheme.colorScheme.onSurfaceContainer,
+                fontSize = MiuixTheme.textStyles.main.fontSize * 0.6f
             )
         }
     }
