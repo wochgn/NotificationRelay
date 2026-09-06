@@ -77,6 +77,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.Lifecycle
@@ -99,8 +100,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -227,13 +228,13 @@ private fun MiuixAppContent(
             }
         }
     } else {
-        // 关闭液态玻璃底栏的手机布局：普通悬浮导航栏
+        // 关闭液态玻璃底栏的手机布局：贴底全宽标准导航栏（图标+文字标签）
         Scaffold(
             topBar = { TopAppBar(title = title) },
             bottomBar = {
-                FloatingNavigationBar {
+                NavigationBar {
                     miuixTabs.forEach { item ->
-                        FloatingNavigationBarItem(
+                        NavigationBarItem(
                             selected = currentTab == item.key,
                             onClick = { onTabChange(item.key) },
                             icon = item.icon,
@@ -272,8 +273,8 @@ private fun MiuixLiquidGlassBottomBar(
                 shape = { Capsule() },
                 effects = {
                     vibrancy()
-                    blur(8f.dp.toPx())
-                    lens(12f.dp.toPx(), 24f.dp.toPx())
+                    blur(14f.dp.toPx())
+                    lens(12f.dp.toPx(), 40f.dp.toPx())
                 },
                 onDrawSurface = { drawRect(containerColor) }
             )
@@ -826,7 +827,7 @@ private fun MiuixSettingsScreen(glassBarEnabled: Boolean, onGlassBarChanged: (Bo
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         SmallTitle(text = "设备名称")
         MiuixCard {
