@@ -238,6 +238,7 @@ fun RelayMainContent(
     }
 
     // 标题：加粗、较默认增大（44sp 缩小 20% → 35sp），顶栏高度同步调整
+    // 标题左缘与选项卡片左缘对齐（20dp 页边距；M3 默认 title 左距 16dp，补 4dp）
     val topBar: @Composable () -> Unit = {
         TopAppBar(
             title = {
@@ -245,7 +246,8 @@ fun RelayMainContent(
                     destination.title,
                     fontSize = 35.sp,
                     lineHeight = 40.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 4.dp)
                 )
             },
             expandedHeight = TopAppBarDefaults.TopAppBarExpandedHeight * 1.6f,
