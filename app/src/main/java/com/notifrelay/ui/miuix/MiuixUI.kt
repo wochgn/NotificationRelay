@@ -1056,18 +1056,14 @@ private fun MiuixDevicesScreen(
         item {
             MiuixWorkStatusCard(state, onClick = onOpenStatusPage)
         }
-        item {
-            MiuixCard {
-                MiuixScanRow(manager, state)
-            }
-        }
-        if (state.peers.isNotEmpty()) {
-            item { MiuixSectionTitle("已连接设备（${state.peers.size}）") }
-            items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
-                MiuixCard {
-                    MiuixPeerRow(manager, peer, { deleteId = it }, { manualDisconnect = true; refresh++ })
-                }
-            }
+        // 已连接设备：每台一张蓝色卡片，置于工作状态卡下方
+        items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
+            MiuixConnectedPeerCard(
+                manager = manager,
+                peer = peer,
+                onUnpair = { deleteId = it },
+                onDisconnect = { manualDisconnect = true; refresh++ }
+            )
         }
         if (savedRows.isNotEmpty()) {
             item { MiuixSectionTitle("已配对设备") }
@@ -1079,8 +1075,12 @@ private fun MiuixDevicesScreen(
                 }
             }
         }
+        item(key = "nearby-header") {
+            MiuixNearbyHeader(
+                onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
+            )
+        }
         if (nearbyRows.isNotEmpty()) {
-            item { MiuixSectionTitle("附近设备") }
             item {
                 MiuixCard {
                     nearbyRows.forEach { row ->
@@ -1088,12 +1088,11 @@ private fun MiuixDevicesScreen(
                     }
                 }
             }
-        }
-        if (savedRows.isEmpty() && nearbyRows.isEmpty() && state.peers.isEmpty()) {
+        } else {
             item {
                 Text(
-                    if (state.discovery.scanning) "正在搜索附近设备…" else "未发现设备，点上方「扫描设备」",
-                    modifier = Modifier.padding(16.dp)
+                    text = if (state.discovery.scanning) "正在搜索附近设备…" else "未发现附近设备，点右上「刷新」重新扫描",
+                    modifier = Modifier.padding(horizontal = 28.dp)
                 )
             }
         }
@@ -1107,9 +1106,9 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
     val unopened = buildList {
-        if (!state.bluetoothEnabled) add("蓝牙")
-        if (!state.listenerEnabled) add("通知监听")
-        if (!state.foregroundEnabled) add("常驻后台")
+        if (!state.bluetoothEnabled) add("蓝牙权限未开启")
+        if (!state.listenerEnabled) add("通知监听权限未开启")
+        if (!state.foregroundEnabled) add("常驻后台未开启")
     }
 
     val cardColor = if (allOn) {
@@ -1148,20 +1147,13 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
                     color = contentColor
                 )
                 if (!allOn) {
-                    // 未开启项：第一行显示第一个，多项时换行显示第二个
+                    // 未开启项描述，多项以顿号连接并自动换行
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "未开启：${unopened.first()}",
+                        text = unopened.joinToString("、"),
                         fontSize = 15.sp,
                         color = contentColor.copy(alpha = 0.82f)
                     )
-                    if (unopened.size > 1) {
-                        Text(
-                            text = unopened[1],
-                            fontSize = 15.sp,
-                            color = contentColor.copy(alpha = 0.82f)
-                        )
-                    }
                 }
             }
             Text(
@@ -1191,7 +1183,7 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
 @Composable
 private fun MiuixStatusLine(label: String, enabled: Boolean) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        Modifier.fillMaxWidth().padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1251,15 +1243,16 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
             }
             .statusBarsPadding()
     ) {
-        Row(
+        // 顶栏：仅返回按钮，图标左缘与卡片内文字左对齐（28dp）
+        Box(
             Modifier
-                .height(56.dp)
-                .padding(end = 8.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .height(MiuixTopBarContentHeight)
         ) {
             Box(
                 Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 16.dp)
                     .size(48.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onBack),
@@ -1272,15 +1265,10 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
                     tint = MiuixTheme.colorScheme.onBackground
                 )
             }
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "工作状态",
-                    style = MiuixTheme.textStyles.main,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.width(48.dp))
         }
+        // 大标题与一级页面大标题位置一致（顶栏 40dp + 4dp 间距）
+        Spacer(Modifier.height(4.dp))
+        MiuixPageTitle("工作状态", remember { mutableStateOf(0f) })
         Spacer(Modifier.height(8.dp))
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -1292,58 +1280,95 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
         Text(
             text = "以上三项前置条件全部开启后，通知转发功能才能在后台持续工作。",
             modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 8.dp),
-            fontSize = MiuixTheme.textStyles.main.fontSize * 0.6f,
+            fontSize = MiuixTheme.textStyles.main.fontSize * 0.72f,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
         Spacer(Modifier.navigationBarsPadding())
     }
 }
 
+/** "附近可用设备"类别标题：右侧蓝色无底色"刷新"文字按钮，字号与类别文字一致，右缘与卡片内文字对齐。 */
 @Composable
-private fun MiuixScanRow(manager: BleRelayManager, state: MiuixDeviceUi) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun MiuixNearbyHeader(onRefresh: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        MiuixSectionTitle("附近可用设备", Modifier.weight(1f))
+        Text(
+            text = "刷新",
+            style = MiuixTheme.textStyles.subtitle,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(end = 28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onRefresh)
+                .padding(2.dp)
+        )
+    }
+}
+
+/** 已连接设备卡片：miuix 蓝色底、白色文字，每台设备一张，置于工作状态卡下方。 */
+@Composable
+private fun MiuixConnectedPeerCard(
+    manager: BleRelayManager,
+    peer: PeerState,
+    onUnpair: (String) -> Unit,
+    onDisconnect: () -> Unit
+) {
+    Card(
+        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.primary,
+            contentColor = Color.White
+        )
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(text = "扫描附近设备", fontWeight = FontWeight.Medium)
-            Text(text = if (state.discovery.scanning) "扫描中…" else "同时保持本机可被发现")
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(
+                text = peer.name.ifBlank { "未知设备" },
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            Text(
+                text = if (peer.needsConfirm) "等待配对确认" else listOf(
+                    peer.android.ifBlank { "版本未知" },
+                    if (peer.battery >= 0) "电量 ${peer.battery}%" else "电量未知"
+                ).joinToString(" · "),
+                color = Color.White.copy(alpha = 0.72f)
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                MiuixPeerAction(
+                    text = if (peer.finding) "取消查找" else "查找设备",
+                    onClick = {
+                        if (peer.finding) manager.cancelFindRemote(peer.deviceId)
+                        else manager.findRemoteDevice(peer.deviceId)
+                    }
+                )
+                MiuixPeerAction(
+                    text = "断开连接",
+                    onClick = { onDisconnect(); manager.disconnect(peer.deviceId) }
+                )
+                MiuixPeerAction(
+                    text = "取消配对",
+                    onClick = { peer.deviceId.takeIf(String::isNotBlank)?.let(onUnpair) }
+                )
+            }
         }
-        top.yukonga.miuix.kmp.basic.Button(
-            onClick = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
-            enabled = !state.discovery.scanning
-        ) { Text("扫描") }
     }
 }
 
 @Composable
-private fun MiuixPeerRow(manager: BleRelayManager, peer: PeerState, onUnpair: (String) -> Unit, onDisconnect: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(text = peer.name.ifBlank { "未知设备" }, fontWeight = FontWeight.Medium)
-        Text(
-            text = if (peer.needsConfirm) "等待配对确认" else listOf(
-                peer.android.ifBlank { "版本未知" },
-                if (peer.battery >= 0) "电量 ${peer.battery}%" else "电量未知"
-            ).joinToString(" · ")
-        )
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            top.yukonga.miuix.kmp.basic.Button(
-                onClick = {
-                    if (peer.finding) manager.cancelFindRemote(peer.deviceId)
-                    else manager.findRemoteDevice(peer.deviceId)
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text(if (peer.finding) "取消查找" else "查找设备") }
-            top.yukonga.miuix.kmp.basic.Button(
-                onClick = { peer.deviceId.takeIf(String::isNotBlank)?.let(onUnpair) },
-                modifier = Modifier.weight(1f)
-            ) { Text("取消配对") }
-            top.yukonga.miuix.kmp.basic.Button(
-                onClick = { onDisconnect(); manager.disconnect(peer.deviceId) },
-                modifier = Modifier.weight(1f)
-            ) { Text("断开连接") }
-        }
-    }
+private fun MiuixPeerAction(text: String, onClick: () -> Unit) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .clip(Capsule())
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp),
+        color = Color.White,
+        fontWeight = FontWeight.Medium
+    )
 }
 
 private data class MiuixDeviceRowUi(
