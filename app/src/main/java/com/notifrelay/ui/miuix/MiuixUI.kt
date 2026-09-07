@@ -127,6 +127,7 @@ import com.notifrelay.SavedDevice
 import com.notifrelay.SettingsRepository
 import com.notifrelay.setUiStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -964,6 +965,14 @@ private fun MiuixDevicesScreen(
         }
     }
 
+    // App 处于前台时实时刷新工作状态（蓝牙/通知监听/常驻后台随时可能变化）
+    LaunchedEffect(lifecycleOwner) {
+        while (true) {
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) refresh++
+            delay(500)
+        }
+    }
+
     @Suppress("UNUSED_EXPRESSION") refresh
     val state = snapshot()
     val connectedKeys = state.peers
@@ -1097,7 +1106,11 @@ private fun MiuixDevicesScreen(
 private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
-    val readyCount = listOf(state.bluetoothEnabled, state.listenerEnabled, state.foregroundEnabled).count { it }
+    val unopened = buildList {
+        if (!state.bluetoothEnabled) add("蓝牙")
+        if (!state.listenerEnabled) add("通知监听")
+        if (!state.foregroundEnabled) add("常驻后台")
+    }
 
     val cardColor = if (allOn) {
         if (dark) Color(0xFF1A3825) else Color(0xFFDFFAE4)
@@ -1134,19 +1147,31 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     color = contentColor
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "前置条件 $readyCount/3 已开启",
-                    fontSize = 15.sp,
-                    color = contentColor.copy(alpha = 0.82f)
-                )
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    text = "版本：1.9",
-                    fontSize = 15.sp,
-                    color = contentColor.copy(alpha = 0.82f)
-                )
+                if (!allOn) {
+                    // 未开启项：第一行显示第一个，多项时换行显示第二个
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "未开启：${unopened.first()}",
+                        fontSize = 15.sp,
+                        color = contentColor.copy(alpha = 0.82f)
+                    )
+                    if (unopened.size > 1) {
+                        Text(
+                            text = unopened[1],
+                            fontSize = 15.sp,
+                            color = contentColor.copy(alpha = 0.82f)
+                        )
+                    }
+                }
             }
+            Text(
+                text = "版本：1.9",
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, bottom = 12.dp),
+                fontSize = 15.sp,
+                color = contentColor.copy(alpha = 0.82f)
+            )
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
@@ -1166,7 +1191,7 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
 @Composable
 private fun MiuixStatusLine(label: String, enabled: Boolean) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1193,6 +1218,13 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
         val listener: (RelayState) -> Unit = { refresh++ }
         manager.observeState(listener)
         onDispose { manager.removeState(listener) }
+    }
+    // 前台实时刷新（与首页工作状态卡一致）
+    LaunchedEffect(Unit) {
+        while (true) {
+            refresh++
+            delay(500)
+        }
     }
     val bluetoothEnabled = remember(refresh) {
         val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
@@ -1249,7 +1281,7 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
             }
             Spacer(Modifier.width(48.dp))
         }
-        MiuixSectionTitle("通知转发状态")
+        Spacer(Modifier.height(8.dp))
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 MiuixStatusLine("蓝牙", bluetoothEnabled)
@@ -1260,6 +1292,7 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
         Text(
             text = "以上三项前置条件全部开启后，通知转发功能才能在后台持续工作。",
             modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 8.dp),
+            fontSize = MiuixTheme.textStyles.main.fontSize * 0.6f,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
         Spacer(Modifier.navigationBarsPadding())
