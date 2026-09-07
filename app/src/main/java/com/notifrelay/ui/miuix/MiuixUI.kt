@@ -229,7 +229,7 @@ private fun MiuixAppContent(
     LaunchedEffect(showStatusPage.value) {
         statusProgress.animateTo(
             if (showStatusPage.value) 1f else 0f,
-            tween(durationMillis = 420, easing = StatusPageEasing)
+            tween(durationMillis = 550, easing = StatusPageEasing)
         )
     }
     BackHandler(enabled = showStatusPage.value) { showStatusPage.value = false }
