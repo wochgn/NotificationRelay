@@ -366,14 +366,7 @@ private fun MiuixAppContent(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
                 }
-                // 主页面压暗层
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.4f * statusProgress.value }
-                        .background(Color.Black)
-                )
-                // 底栏随二级页进入向下滑出，退出时向上滑回
+                // 底栏随二级页进入向下滑出，退出时向上滑回；与主页面作为整体参与压暗/模糊/缩小
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
@@ -396,6 +389,13 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
+                )
+                // 主页面压暗层（覆盖内容与底栏）
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.4f * statusProgress.value }
+                        .background(Color.Black)
                 )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
                 MiuixStatusDetailPage(
@@ -541,14 +541,7 @@ private fun MiuixAppContent(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
                 }
-                // 主页面压暗层
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.4f * statusProgress.value }
-                        .background(Color.Black)
-                )
-                // 表面 85% 不透明：模糊可见且无透明漏底
+                // 表面 85% 不透明：模糊可见且无透明漏底；非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
                 val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.85f)
                 Box(
                     Modifier
@@ -558,8 +551,6 @@ private fun MiuixAppContent(
                             val ps = statusProgress.value
                             val p = max(ps, dialogProgress.value)
                             translationY = size.height * ps
-                            scaleX = 1f - 0.06f * p
-                            scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
                                 val r = 12.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
@@ -600,6 +591,13 @@ private fun MiuixAppContent(
                         }
                     }
                 }
+                // 主页面压暗层（覆盖内容与底栏）
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.4f * statusProgress.value }
+                        .background(Color.Black)
+                )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
                 MiuixStatusDetailPage(
                     onBack = { showStatusPage.value = false },
@@ -994,6 +992,12 @@ private fun MiuixDevicesScreen(
     var wasConnected by remember { mutableStateOf(manager.visibleConnected()) }
     var manualDisconnect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteTitle by remember { mutableStateOf("") }
+    var deleteMessage by remember { mutableStateOf("") }
+    var showPairDialog by remember { mutableStateOf(false) }
+    var pairDialogPeer by remember { mutableStateOf<PeerState?>(null) }
+    var pairHandledIds by remember { mutableStateOf(setOf<String>()) }
 
     fun snapshot(): MiuixDeviceUi {
         val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -1074,9 +1078,9 @@ private fun MiuixDevicesScreen(
 
     @Suppress("UNUSED_EXPRESSION") refresh
     val state = snapshot()
-    // 弹窗（取消配对/配对确认）显示时驱动背景缩小+模糊
-    LaunchedEffect(deleteId, state.peers) {
-        dialogVisible.value = deleteId != null || state.peers.any { it.needsConfirm }
+    // 弹窗（取消配对/配对确认）显示时驱动背景缩小+模糊+压暗
+    LaunchedEffect(showDeleteDialog, showPairDialog) {
+        dialogVisible.value = showDeleteDialog || showPairDialog
     }
     val connectedKeys = state.peers
         .flatMap { listOf(it.deviceId, it.address) }
@@ -1086,56 +1090,83 @@ private fun MiuixDevicesScreen(
     val savedRows = buildMiuixRows(savedDevices, state.discovery, connectedKeys, false)
     val nearbyRows = buildMiuixRows(savedDevices, state.discovery, connectedKeys, true)
 
-    deleteId?.let { id ->
+    // 打开取消配对/删除确认：记录标题与正文，弹窗关闭后仍驻留组合以播放退出动画
+    fun openDeleteDialog(id: String) {
         val name = repo.findByDeviceId(id)?.name ?: id
         val connected = state.peers.any { it.deviceId == id }
-        OverlayDialog(
-            show = true,
-            title = if (connected) "取消配对设备" else "删除已配对设备",
-            onDismissRequest = { deleteId = null },
-            enableWindowDim = false
-        ) {
-            Column {
-                Text(
-                    if (connected) "确定要取消与「$name」的配对吗？此操作会同步删除双方的配对记录并断开连接。"
-                    else "确定要删除已配对设备「$name」吗？"
+        deleteTitle = if (connected) "取消配对设备" else "删除已配对设备"
+        deleteMessage = if (connected)
+            "确定要取消与「$name」的配对吗？此操作会同步删除双方的配对记录并断开连接。"
+        else
+            "确定要删除已配对设备「$name」吗？"
+        deleteId = id
+        showDeleteDialog = true
+    }
+
+    OverlayDialog(
+        show = showDeleteDialog,
+        title = deleteTitle,
+        onDismissRequest = { showDeleteDialog = false },
+        enableWindowDim = false
+    ) {
+        Column {
+            Text(deleteMessage)
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(text = "取消", onClick = { showDeleteDialog = false }, modifier = Modifier.weight(1f))
+                TextButton(
+                    text = "取消配对",
+                    onClick = {
+                        deleteId?.let { manager.unpair(it) }
+                        showDeleteDialog = false
+                        refresh++
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary()
                 )
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(text = "取消", onClick = { deleteId = null }, modifier = Modifier.weight(1f))
-                    TextButton(
-                        text = "取消配对",
-                        onClick = {
-                            manager.unpair(id)
-                            deleteId = null
-                            refresh++
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.textButtonColorsPrimary()
-                    )
-                }
             }
         }
     }
 
-    // 配对确认（多设备时取第一台待确认）
-    val pendingPair = state.peers.firstOrNull { it.needsConfirm }
-    if (pendingPair != null) {
-        OverlayDialog(
-            show = true,
-            title = "确认配对设备",
-            onDismissRequest = {},
-            enableWindowDim = false
+    // 配对确认：待确认设备驻留组合，退出时下滑动画；同一设备只弹一次，外部点击关闭后若仍未处理会重新弹出
+    LaunchedEffect(state.peers, showPairDialog, pairDialogPeer) {
+        val pending = state.peers.firstOrNull { it.needsConfirm }
+        if (pending != null && !showPairDialog && pairDialogPeer == null &&
+            pending.deviceId !in pairHandledIds
         ) {
+            pairDialogPeer = pending
+            showPairDialog = true
+        }
+    }
+    OverlayDialog(
+        show = showPairDialog,
+        title = "确认配对设备",
+        onDismissRequest = { showPairDialog = false },
+        onDismissFinished = { pairDialogPeer = null },
+        enableWindowDim = false
+    ) {
+        pairDialogPeer?.let { peer ->
             Column {
                 Text(
-                    "「${pendingPair.name.ifBlank { "附近设备" }}」请求与你建立通知流转连接。\n\n" +
+                    "「${peer.name.ifBlank { "附近设备" }}」请求与你建立通知流转连接。\n\n" +
                         "请先核对两台设备上显示的设备名称，确认名称一致且确实是你要连接的设备。"
                 )
                 Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(text = "拒绝", onClick = { manager.rejectPairing(pendingPair.deviceId) }, modifier = Modifier.weight(1f))
+                    TextButton(
+                        text = "拒绝",
+                        onClick = {
+                            pairHandledIds = pairHandledIds + peer.deviceId
+                            manager.rejectPairing(peer.deviceId)
+                            showPairDialog = false
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
                     TextButton(
                         text = "确认配对",
-                        onClick = { manager.acceptPairing(pendingPair.deviceId) },
+                        onClick = {
+                            pairHandledIds = pairHandledIds + peer.deviceId
+                            manager.acceptPairing(peer.deviceId)
+                            showPairDialog = false
+                        },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary()
                     )
@@ -1172,7 +1203,7 @@ private fun MiuixDevicesScreen(
             MiuixConnectedPeerCard(
                 manager = manager,
                 peer = peer,
-                onUnpair = { deleteId = it },
+                onUnpair = { openDeleteDialog(it) },
                 onDisconnect = { manualDisconnect = true; refresh++ }
             )
         }
@@ -1181,7 +1212,7 @@ private fun MiuixDevicesScreen(
             item {
                 MiuixCard {
                     savedRows.forEach { row ->
-                        MiuixDeviceRow(manager, row, { deleteId = row.id })
+                        MiuixDeviceRow(manager, row, { openDeleteDialog(row.id) })
                     }
                 }
             }
