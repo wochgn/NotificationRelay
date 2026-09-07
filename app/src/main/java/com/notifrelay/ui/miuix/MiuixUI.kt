@@ -38,6 +38,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -92,6 +93,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -188,7 +190,8 @@ fun MiuixRelayApp(
     manager: BleRelayManager,
     widthSizeClass: WindowWidthSizeClass,
     currentTab: String,
-    onTabChange: (String) -> Unit
+    onTabChange: (String) -> Unit,
+    settingsScrollState: ScrollState
 ) {
     val controller = remember { ThemeController(ColorSchemeMode.System) }
     MiuixTheme(controller = controller) {
@@ -196,7 +199,8 @@ fun MiuixRelayApp(
             manager = manager,
             widthSizeClass = widthSizeClass,
             currentTab = currentTab,
-            onTabChange = onTabChange
+            onTabChange = onTabChange,
+            settingsScrollState = settingsScrollState
         )
     }
 }
@@ -206,7 +210,8 @@ private fun MiuixAppContent(
     manager: BleRelayManager,
     widthSizeClass: WindowWidthSizeClass,
     currentTab: String,
-    onTabChange: (String) -> Unit
+    onTabChange: (String) -> Unit,
+    settingsScrollState: ScrollState
 ) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
@@ -285,7 +290,8 @@ private fun MiuixAppContent(
                             glassBarEnabled = it
                             repo.liquidGlassBarEnabled = it
                         },
-                        scrollProgress = settingsScrollProgress
+                        scrollProgress = settingsScrollProgress,
+                        scrollState = settingsScrollState
                     )
                 }
             }
@@ -1077,6 +1083,7 @@ private fun MiuixDevicesScreen(
         }
         item(key = "nearby-header") {
             MiuixNearbyHeader(
+                scanning = state.discovery.scanning,
                 onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
             )
         }
@@ -1087,13 +1094,6 @@ private fun MiuixDevicesScreen(
                         MiuixDeviceRow(manager, row, {})
                     }
                 }
-            }
-        } else {
-            item {
-                Text(
-                    text = if (state.discovery.scanning) "正在搜索附近设备…" else "未发现附近设备，点右上「刷新」重新扫描",
-                    modifier = Modifier.padding(horizontal = 28.dp)
-                )
             }
         }
     }
@@ -1252,8 +1252,8 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 16.dp)
-                    .size(48.dp)
+                    .padding(start = 8.5.dp)
+                    .size(53.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center
@@ -1289,17 +1289,17 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
 
 /** "附近可用设备"类别标题：右侧蓝色无底色"刷新"文字按钮，字号与类别文字一致，右缘与卡片内文字对齐。 */
 @Composable
-private fun MiuixNearbyHeader(onRefresh: () -> Unit) {
+private fun MiuixNearbyHeader(scanning: Boolean, onRefresh: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         MiuixSectionTitle("附近可用设备", Modifier.weight(1f))
         Text(
-            text = "刷新",
+            text = if (scanning) "正在刷新中" else "刷新",
             style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.primary,
+            color = if (scanning) MiuixTheme.colorScheme.onBackgroundVariant else MiuixTheme.colorScheme.primary,
             modifier = Modifier
                 .padding(end = 28.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onRefresh)
+                .clickable(enabled = !scanning, onClick = onRefresh)
                 .padding(2.dp)
         )
     }
@@ -1329,30 +1329,38 @@ private fun MiuixConnectedPeerCard(
             )
             Text(
                 text = if (peer.needsConfirm) "等待配对确认" else listOf(
+                    "已连接",
                     peer.android.ifBlank { "版本未知" },
                     if (peer.battery >= 0) "电量 ${peer.battery}%" else "电量未知"
                 ).joinToString(" · "),
                 color = Color.White.copy(alpha = 0.72f)
             )
+            // 三个操作横向均匀分布，左右两端与卡片内文字对齐
             Row(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                MiuixPeerAction(
-                    text = if (peer.finding) "取消查找" else "查找设备",
-                    onClick = {
-                        if (peer.finding) manager.cancelFindRemote(peer.deviceId)
-                        else manager.findRemoteDevice(peer.deviceId)
-                    }
-                )
-                MiuixPeerAction(
-                    text = "断开连接",
-                    onClick = { onDisconnect(); manager.disconnect(peer.deviceId) }
-                )
-                MiuixPeerAction(
-                    text = "取消配对",
-                    onClick = { peer.deviceId.takeIf(String::isNotBlank)?.let(onUnpair) }
-                )
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    MiuixPeerAction(
+                        text = if (peer.finding) "取消查找" else "查找设备",
+                        onClick = {
+                            if (peer.finding) manager.cancelFindRemote(peer.deviceId)
+                            else manager.findRemoteDevice(peer.deviceId)
+                        }
+                    )
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    MiuixPeerAction(
+                        text = "断开连接",
+                        onClick = { onDisconnect(); manager.disconnect(peer.deviceId) }
+                    )
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    MiuixPeerAction(
+                        text = "取消配对",
+                        onClick = { peer.deviceId.takeIf(String::isNotBlank)?.let(onUnpair) }
+                    )
+                }
             }
         }
     }
@@ -1566,7 +1574,8 @@ private fun MiuixAppsScreen() {
 private fun MiuixSettingsScreen(
     glassBarEnabled: Boolean,
     onGlassBarChanged: (Boolean) -> Unit,
-    scrollProgress: MutableState<Float>
+    scrollProgress: MutableState<Float>,
+    scrollState: ScrollState
 ) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
@@ -1592,7 +1601,6 @@ private fun MiuixSettingsScreen(
 
     val manager = remember { BleRelayManager.get(context) }
 
-    val scrollState = rememberScrollState()
     val density = LocalDensity.current
     val titleFadePx = with(density) { 56.dp.toPx() }
     LaunchedEffect(scrollState) {
@@ -1612,7 +1620,10 @@ private fun MiuixSettingsScreen(
                 TextField(
                     value = deviceName,
                     onValueChange = { deviceName = it },
-                    modifier = Modifier.fillMaxWidth()
+                    // 失去焦点后自动恢复为当前生效的设备名
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+                        if (!state.isFocused) deviceName = repo.resolvedDeviceName()
+                    }
                 )
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     top.yukonga.miuix.kmp.basic.Button(

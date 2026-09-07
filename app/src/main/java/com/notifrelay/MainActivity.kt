@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.getValue
@@ -49,12 +50,15 @@ class MainActivity : ComponentActivity() {
 
             // M3 自适应：按窗口宽度决定导航形态
             val windowSizeClass = calculateWindowSizeClass(this)
+            // 设置页滚动状态提升到根级：切换风格/底栏形态时保持页面位置
+            val settingsScrollState = rememberScrollState()
             if (uiStyleState == "miuix") {
                 com.notifrelay.ui.miuix.MiuixRelayApp(
                     manager = BleRelayManager.get(this),
                     widthSizeClass = windowSizeClass.widthSizeClass,
                     currentTab = appTabState,
-                    onTabChange = { setAppTab(it) }
+                    onTabChange = { setAppTab(it) },
+                    settingsScrollState = settingsScrollState
                 )
             } else {
                 RelayTheme {
@@ -62,7 +66,8 @@ class MainActivity : ComponentActivity() {
                         manager = BleRelayManager.get(this),
                         widthSizeClass = windowSizeClass.widthSizeClass,
                         currentTab = appTabState,
-                        onTabChange = { setAppTab(it) }
+                        onTabChange = { setAppTab(it) },
+                        settingsScrollState = settingsScrollState
                     )
                 }
             }

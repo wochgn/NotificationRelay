@@ -41,10 +41,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
@@ -176,7 +178,8 @@ fun RelayMainContent(
     manager: BleRelayManager,
     widthSizeClass: WindowWidthSizeClass,
     currentTab: String,
-    onTabChange: (String) -> Unit
+    onTabChange: (String) -> Unit,
+    settingsScrollState: ScrollState
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
@@ -271,7 +274,7 @@ fun RelayMainContent(
         ) {
             composable("devices") { DevicesScreen(manager, widthSizeClass != WindowWidthSizeClass.Compact) }
             composable("apps") { AppsScreen() }
-            composable("settings") { SettingsScreen() }
+            composable("settings") { SettingsScreen(settingsScrollState) }
         }
     }
 
@@ -881,7 +884,7 @@ private fun loadApps(context: Context): List<AppInfo> {
 }
 
 @Composable
-private fun SettingsScreen() {
+private fun SettingsScreen(scrollState: ScrollState) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     var deviceName by remember { mutableStateOf(repo.resolvedDeviceName()) }
@@ -900,7 +903,7 @@ private fun SettingsScreen() {
     LaunchedEffect(logs.size) { logScroll.scrollTo(logScroll.maxValue) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp),
+        Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
@@ -912,7 +915,9 @@ private fun SettingsScreen() {
                 label = { Text("设备名称") },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).onFocusChanged { state ->
+                    if (!state.isFocused) deviceName = repo.resolvedDeviceName()
+                }
             )
             Row(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
