@@ -256,7 +256,7 @@ private fun MiuixAppContent(
     LaunchedEffect(dialogVisible.value) {
         dialogProgress.animateTo(
             if (dialogVisible.value) 1f else 0f,
-            tween(durationMillis = 300, easing = StatusPageEasing)
+            tween(durationMillis = 450, easing = FastOutSlowInEasing)
         )
     }
 
@@ -343,7 +343,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
-                                val r = 18.dp.toPx() * p
+                                val r = 12.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
@@ -390,7 +390,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
-                                val r = 18.dp.toPx() * p
+                                val r = 12.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
@@ -408,7 +408,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
                             renderEffect = if (pd > 0.01f) {
-                                val r = 18.dp.toPx() * pd
+                                val r = 12.dp.toPx() * pd
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
@@ -446,7 +446,7 @@ private fun MiuixAppContent(
                                 scaleX = 1f - 0.06f * p
                                 scaleY = 1f - 0.06f * p
                                 renderEffect = if (p > 0.01f) {
-                                    val r = 14.dp.toPx() * p
+                                    val r = 10.dp.toPx() * p
                                     BlurEffect(r, r, TileMode.Clamp)
                                 } else {
                                     null
@@ -481,7 +481,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
                             renderEffect = if (pd > 0.01f) {
-                                val r = 18.dp.toPx() * pd
+                                val r = 12.dp.toPx() * pd
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
@@ -505,7 +505,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
-                                val r = 18.dp.toPx() * p
+                                val r = 12.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
@@ -547,7 +547,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
-                                val r = 18.dp.toPx() * p
+                                val r = 12.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
@@ -597,7 +597,7 @@ private fun MiuixAppContent(
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
                             renderEffect = if (pd > 0.01f) {
-                                val r = 18.dp.toPx() * pd
+                                val r = 12.dp.toPx() * pd
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
