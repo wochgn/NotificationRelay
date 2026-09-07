@@ -904,6 +904,11 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
         }
         item {
             MiuixCard {
+                MiuixStatusCard(state)
+            }
+        }
+        item {
+            MiuixCard {
                 MiuixScanRow(manager, state)
             }
         }
@@ -943,6 +948,33 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
                 )
             }
         }
+    }
+}
+
+/** 工作状态卡：展示蓝牙/通知监听/常驻后台三项系统前置条件（内容与 MD3 设备状态卡一致）。 */
+@Composable
+private fun MiuixStatusCard(state: MiuixDeviceUi) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(text = "工作状态", fontWeight = FontWeight.Medium)
+        MiuixStatusLine("蓝牙", state.bluetoothEnabled)
+        MiuixStatusLine("通知监听", state.listenerEnabled)
+        MiuixStatusLine("常驻后台", state.foregroundEnabled)
+    }
+}
+
+@Composable
+private fun MiuixStatusLine(label: String, enabled: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label)
+        Text(
+            text = if (enabled) "已开启" else "未开启",
+            fontWeight = FontWeight.Medium,
+            color = if (enabled) Color(0xFF34C759) else Color(0xFFFF453A)
+        )
     }
 }
 
@@ -1234,7 +1266,6 @@ private fun MiuixSettingsScreen(
                 TextField(
                     value = deviceName,
                     onValueChange = { deviceName = it },
-                    label = "设备名称",
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
