@@ -56,7 +56,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Cancel
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.Devices
@@ -121,6 +128,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.NavigationBar
@@ -752,6 +760,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
     var wasConnected by remember { mutableStateOf(manager.visibleConnected()) }
     var manualDisconnect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
+    var showStatusPage by remember { mutableStateOf(false) }
 
     fun snapshot(): MiuixDeviceUi {
         val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -903,9 +912,7 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
             MiuixPageTitle("设备", scrollProgress, lifted = true)
         }
         item {
-            MiuixCard {
-                MiuixStatusCard(state)
-            }
+            MiuixWorkStatusCard(state, onClick = { showStatusPage = true })
         }
         item {
             MiuixCard {
@@ -949,16 +956,106 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
             }
         }
     }
+
+    // 二级页：工作状态明细（蓝牙/通知监听/常驻后台），从右侧滑入，系统返回键返回
+    BackHandler(enabled = showStatusPage) { showStatusPage = false }
+    AnimatedVisibility(
+        visible = showStatusPage,
+        enter = slideInHorizontally { it },
+        exit = slideOutHorizontally { it },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
+            Row(
+                Modifier
+                    .statusBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { showStatusPage = false }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "返回",
+                        tint = MiuixTheme.colorScheme.onBackground
+                    )
+                }
+                Text(
+                    text = "工作状态",
+                    style = MiuixTheme.textStyles.title1,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            MiuixCard {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    MiuixStatusLine("蓝牙", state.bluetoothEnabled)
+                    MiuixStatusLine("通知监听", state.listenerEnabled)
+                    MiuixStatusLine("常驻后台", state.foregroundEnabled)
+                }
+            }
+            Text(
+                text = "以上为通知转发所需的三项系统前置条件，全部开启后方可正常流转通知。",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+    }
 }
 
-/** 工作状态卡：展示蓝牙/通知监听/常驻后台三项系统前置条件（内容与 MD3 设备状态卡一致）。 */
+/** 工作状态卡（KernelSU 绿色样式）：点击进入二级页查看蓝牙/通知监听/常驻后台明细。 */
 @Composable
-private fun MiuixStatusCard(state: MiuixDeviceUi) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(text = "工作状态", fontWeight = FontWeight.Medium)
-        MiuixStatusLine("蓝牙", state.bluetoothEnabled)
-        MiuixStatusLine("通知监听", state.listenerEnabled)
-        MiuixStatusLine("常驻后台", state.foregroundEnabled)
+private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
+    val readyCount = listOf(state.bluetoothEnabled, state.listenerEnabled, state.foregroundEnabled).count { it }
+
+    val bg = if (allOn) {
+        if (dark) Color(0xFF1E3A26) else Color(0xFFDFF0DD)
+    } else {
+        if (dark) Color(0xFF4E2C2C) else Color(0xFFF6DCDC)
+    }
+    val titleColor = if (allOn) {
+        if (dark) Color(0xFFB8EFC8) else Color(0xFF1B4D2A)
+    } else {
+        if (dark) Color(0xFFFFB4B4) else Color(0xFF8C2B2B)
+    }
+    val subColor = titleColor.copy(alpha = 0.75f)
+    val iconTint = if (allOn) {
+        if (dark) Color(0xFF5FE08D) else Color(0xFF2E7D32)
+    } else {
+        if (dark) Color(0xFFFF8A80) else Color(0xFFE05252)
+    }
+
+    Box(
+        Modifier
+            .padding(horizontal = 12.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+    ) {
+        Column {
+            Text(
+                text = if (allOn) "工作中" else "未就绪",
+                style = MiuixTheme.textStyles.title1,
+                fontWeight = FontWeight.Bold,
+                color = titleColor
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(text = "前置条件 $readyCount/3 已开启", color = subColor)
+            Spacer(Modifier.height(8.dp))
+            Text(text = "版本：1.9", color = subColor)
+        }
+        Icon(
+            imageVector = if (allOn) Icons.Rounded.CheckCircle else Icons.Rounded.Cancel,
+            contentDescription = null,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(56.dp),
+            tint = iconTint
+        )
     }
 }
 
