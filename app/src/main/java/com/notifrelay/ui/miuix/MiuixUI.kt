@@ -416,6 +416,13 @@ private fun MiuixAppContent(
                         }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                 )
+                // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.35f * dialogProgress.value }
+                        .background(Color.Black)
+                )
             }
         }
     } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
@@ -488,6 +495,13 @@ private fun MiuixAppContent(
                             }
                         }
                             .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                    )
+                    // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = 0.35f * dialogProgress.value }
+                            .background(Color.Black)
                     )
                 }
             }
@@ -604,6 +618,13 @@ private fun MiuixAppContent(
                             }
                         }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                )
+                // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.35f * dialogProgress.value }
+                        .background(Color.Black)
                 )
             }
         }
@@ -1071,7 +1092,8 @@ private fun MiuixDevicesScreen(
         OverlayDialog(
             show = true,
             title = if (connected) "取消配对设备" else "删除已配对设备",
-            onDismissRequest = { deleteId = null }
+            onDismissRequest = { deleteId = null },
+            enableWindowDim = false
         ) {
             Column {
                 Text(
@@ -1101,7 +1123,8 @@ private fun MiuixDevicesScreen(
         OverlayDialog(
             show = true,
             title = "确认配对设备",
-            onDismissRequest = {}
+            onDismissRequest = {},
+            enableWindowDim = false
         ) {
             Column {
                 Text(
