@@ -103,6 +103,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -269,7 +270,7 @@ private fun MiuixAppContent(
         pageCount = { miuixTabs.size }
     )
     LaunchedEffect(currentTabIndex) {
-        if (pagerState.currentPage == currentTabIndex) return@LaunchedEffect
+        if (pagerState.isScrollInProgress || pagerState.currentPage == currentTabIndex) return@LaunchedEffect
         val distance = abs(currentTabIndex - pagerState.currentPage).coerceAtLeast(1)
         pagerState.animateScrollToPage(
             page = currentTabIndex,
@@ -281,7 +282,9 @@ private fun MiuixAppContent(
     }
     val onTabChangeUpdated by rememberUpdatedState(onTabChange)
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { page ->
+        snapshotFlow {
+            if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.settledPage
+        }.collect { page ->
             onTabChangeUpdated(miuixTabs[page].key)
         }
     }
@@ -371,10 +374,38 @@ private fun MiuixAppContent(
                     backdrop = backdrop,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
+                // 阴影独立于底栏 graphicsLayer：仅保留环境阴影，使四周等距向外发散且不被 BlurEffect 裁切。
+                val barShadowColor = Color.Black.copy(alpha = if (isSystemInDarkTheme()) 0.62f else 0.48f)
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .fillMaxWidth(barFraction)
+                        .height(64.dp)
+                        .offset {
+                            IntOffset(
+                                0,
+                                ((64.dp.roundToPx() + 24.dp.roundToPx()) * statusProgress.value).roundToInt()
+                            )
+                        }
+                        .padding(4.dp)
+                        .shadow(
+                            elevation = 22.dp,
+                            shape = Capsule(),
+                            clip = false,
+                            ambientColor = barShadowColor,
+                            spotColor = Color.Transparent
+                        )
+                        .background(Color.Black.copy(alpha = 0.02f), Capsule())
+                )
                 // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
+                    pagePosition = {
+                        (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+                            .coerceIn(0f, miuixTabs.lastIndex.toFloat())
+                    },
                     onSelect = onTabChange,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -641,6 +672,7 @@ private fun MiuixAppContent(
 private fun MiuixLiquidGlassBottomBar(
     backdrop: Backdrop,
     currentTab: String,
+    pagePosition: () -> Float,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -728,21 +760,6 @@ private fun MiuixLiquidGlassBottomBar(
     val tabScale = { lerp(1f, 1.2f, dampedDragAnimation.pressProgress) }
 
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
-        // 独立外阴影层：与 backdrop 的高光/折射分离，确保阴影围绕整个 capsule 向外扩散。
-        val shadowColor = Color.Black.copy(alpha = if (isLight) 0.34f else 0.5f)
-        Box(
-            Modifier
-                .matchParentSize()
-                .padding(4.dp)
-                .shadow(
-                    elevation = 18.dp,
-                    shape = Capsule(),
-                    clip = false,
-                    ambientColor = shadowColor,
-                    spotColor = shadowColor
-                )
-                .background(Color.Black.copy(alpha = 0.01f), Capsule())
-        )
         // 基础玻璃栏：模糊 + 内容，按压时整栏轻微放大
         Row(
             Modifier
@@ -817,7 +834,11 @@ private fun MiuixLiquidGlassBottomBar(
                 Modifier
                     .padding(horizontal = 4.dp)
                     .graphicsLayer {
-                        val progressOffset = dampedDragAnimation.value * tabWidthPx
+                        val progressOffset = if (dampedDragAnimation.pressProgress > 0.01f) {
+                            dampedDragAnimation.value * tabWidthPx
+                        } else {
+                            pagePosition() * tabWidthPx
+                        }
                         translationX = progressOffset + panelOffset
                     }
                     .drawBackdrop(
@@ -834,6 +855,7 @@ private fun MiuixLiquidGlassBottomBar(
                             }
                         },
                         highlight = { Highlight.Default.copy(alpha = dampedDragAnimation.pressProgress) },
+                        shadow = { Shadow(alpha = 0f) },
                         layerBlock = {
                             scaleX = dampedDragAnimation.scaleX
                             scaleY = dampedDragAnimation.scaleY
@@ -918,7 +940,7 @@ private fun MiuixCollapsingTopBar(
     val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
     val sp = scrollProgress.value
     // 保留足够透明度，让滚入顶栏下方的内容能明显呈现磨砂模糊。
-    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.78f)
+    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.62f)
     Box(
         modifier
             .fillMaxWidth()

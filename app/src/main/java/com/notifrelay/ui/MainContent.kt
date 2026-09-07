@@ -190,7 +190,7 @@ fun RelayMainContent(
         pageCount = { destinations.size }
     )
     LaunchedEffect(currentTabIndex) {
-        if (pagerState.currentPage != currentTabIndex) {
+        if (!pagerState.isScrollInProgress && pagerState.currentPage != currentTabIndex) {
             pagerState.animateScrollToPage(
                 page = currentTabIndex,
                 animationSpec = tween(340, easing = EmphasizedDecelerate)
@@ -199,7 +199,9 @@ fun RelayMainContent(
     }
     val onTabChangeUpdated by rememberUpdatedState(onTabChange)
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { page ->
+        snapshotFlow {
+            if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.settledPage
+        }.collect { page ->
             onTabChangeUpdated(destinations[page].route)
         }
     }
