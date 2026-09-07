@@ -366,7 +366,7 @@ private fun MiuixAppContent(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
                 }
-                // 底栏随二级页进入向下滑出，退出时向上滑回；与主页面作为整体参与压暗/模糊/缩小
+                // 底栏随二级页进入向下滑出，退出时向上滑回；不做缩小，仅与主页面整体参与压暗/模糊（描边随之保持不缩）
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
@@ -380,8 +380,6 @@ private fun MiuixAppContent(
                             val ps = statusProgress.value
                             val p = max(ps, dialogProgress.value)
                             translationY = (size.height + 24.dp.toPx()) * ps
-                            scaleX = 1f - 0.06f * p
-                            scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
                                 val r = 12.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
