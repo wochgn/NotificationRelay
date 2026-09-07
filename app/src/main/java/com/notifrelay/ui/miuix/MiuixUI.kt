@@ -58,6 +58,8 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.Icons
@@ -128,6 +130,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
@@ -160,6 +163,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sign
 import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.ColorSchemeMode
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 private data class MiuixTab(val key: String, val label: String, val icon: ImageVector)
 
@@ -961,15 +965,20 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
     BackHandler(enabled = showStatusPage) { showStatusPage = false }
     AnimatedVisibility(
         visible = showStatusPage,
-        enter = slideInHorizontally { it },
-        exit = slideOutHorizontally { it },
+        enter = slideInHorizontally(
+            animationSpec = tween(300, easing = FastOutSlowInEasing)
+        ) { it } + fadeIn(tween(220)),
+        exit = slideOutHorizontally(
+            animationSpec = tween(220, easing = FastOutSlowInEasing)
+        ) { it } + fadeOut(tween(160)),
         modifier = Modifier.fillMaxSize()
     ) {
-        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
+        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
             Row(
                 Modifier
                     .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .height(56.dp)
+                    .padding(horizontal = 8.dp)
                     .fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -987,17 +996,18 @@ private fun MiuixDevicesScreen(manager: BleRelayManager, scrollProgress: Mutable
                     modifier = Modifier.padding(start = 4.dp)
                 )
             }
-            Spacer(Modifier.height(8.dp))
+            MiuixSectionTitle("通知转发状态")
             MiuixCard {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     MiuixStatusLine("蓝牙", state.bluetoothEnabled)
                     MiuixStatusLine("通知监听", state.listenerEnabled)
                     MiuixStatusLine("常驻后台", state.foregroundEnabled)
                 }
             }
             Text(
-                text = "以上为通知转发所需的三项系统前置条件，全部开启后方可正常流转通知。",
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                text = "以上三项前置条件全部开启后，通知转发功能才能在后台持续工作。",
+                modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
         }
     }
@@ -1010,52 +1020,67 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
     val readyCount = listOf(state.bluetoothEnabled, state.listenerEnabled, state.foregroundEnabled).count { it }
 
-    val bg = if (allOn) {
-        if (dark) Color(0xFF1E3A26) else Color(0xFFDFF0DD)
+    val cardColor = if (allOn) {
+        if (dark) Color(0xFF1A3825) else Color(0xFFDFFAE4)
     } else {
-        if (dark) Color(0xFF4E2C2C) else Color(0xFFF6DCDC)
+        if (dark) Color(0xFF4A2929) else Color(0xFFF8DEDE)
     }
-    val titleColor = if (allOn) {
-        if (dark) Color(0xFFB8EFC8) else Color(0xFF1B4D2A)
+    val contentColor = if (allOn) {
+        if (dark) Color(0xFFE2F8E8) else Color(0xFF164A29)
     } else {
-        if (dark) Color(0xFFFFB4B4) else Color(0xFF8C2B2B)
+        if (dark) Color(0xFFFFE3E0) else Color(0xFF7A201B)
     }
-    val subColor = titleColor.copy(alpha = 0.75f)
-    val iconTint = if (allOn) {
-        if (dark) Color(0xFF5FE08D) else Color(0xFF2E7D32)
-    } else {
-        if (dark) Color(0xFFFF8A80) else Color(0xFFE05252)
-    }
+    val iconTint = if (allOn) Color(0xFF36D167) else Color(0xFFE05252)
 
-    Box(
-        Modifier
-            .padding(horizontal = 12.dp)
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+    Card(
+        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.defaultColors(
+            color = cardColor,
+            contentColor = contentColor
+        ),
+        onClick = onClick,
+        showIndication = true,
+        pressFeedbackType = PressFeedbackType.Tilt
     ) {
-        Column {
-            Text(
-                text = if (allOn) "工作中" else "未就绪",
-                style = MiuixTheme.textStyles.title1,
-                fontWeight = FontWeight.Bold,
-                color = titleColor
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(text = "前置条件 $readyCount/3 已开启", color = subColor)
-            Spacer(Modifier.height(8.dp))
-            Text(text = "版本：1.9", color = subColor)
+        Box(Modifier.fillMaxWidth().height(128.dp)) {
+            Column(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 14.dp)
+            ) {
+                Text(
+                    text = if (allOn) "工作中" else "未就绪",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = contentColor
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "前置条件 $readyCount/3 已开启",
+                    fontSize = 15.sp,
+                    color = contentColor.copy(alpha = 0.82f)
+                )
+                Spacer(Modifier.height(1.dp))
+                Text(
+                    text = "版本：1.9",
+                    fontSize = 15.sp,
+                    color = contentColor.copy(alpha = 0.82f)
+                )
+            }
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .offset(x = 24.dp, y = 28.dp)
+            ) {
+                Icon(
+                    imageVector = if (allOn) Icons.Rounded.CheckCircle else Icons.Rounded.Cancel,
+                    contentDescription = null,
+                    modifier = Modifier.size(104.dp),
+                    tint = iconTint
+                )
+            }
         }
-        Icon(
-            imageVector = if (allOn) Icons.Rounded.CheckCircle else Icons.Rounded.Cancel,
-            contentDescription = null,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(56.dp),
-            tint = iconTint
-        )
     }
 }
 
