@@ -366,7 +366,7 @@ private fun MiuixAppContent(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
                 }
-                // 底栏随二级页进入向下滑出，退出时向上滑回；不缩小、不做外层模糊，仅参与整体压暗（描边保持完整）
+                // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
@@ -376,7 +376,16 @@ private fun MiuixAppContent(
                         .padding(bottom = 24.dp)
                         .fillMaxWidth(barFraction)
                         .height(64.dp)
-                        .graphicsLayer { translationY = (size.height + 24.dp.toPx()) * statusProgress.value }
+                        .graphicsLayer {
+                            val p = max(statusProgress.value, dialogProgress.value)
+                            translationY = (size.height + 24.dp.toPx()) * statusProgress.value
+                            renderEffect = if (p > 0.01f) {
+                                val r = 12.dp.toPx() * p
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                 )
                 // 主页面压暗层（覆盖内容与底栏）
                 Box(
@@ -529,19 +538,28 @@ private fun MiuixAppContent(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
                 }
-                // 表面 85% 不透明：模糊可见且无透明漏底；非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
-                val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.85f)
+                // 表面 92% 不透明：小白条区域不透出背景文字；非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
+                val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.92f)
                 Box(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .graphicsLayer { translationY = size.height * statusProgress.value }
+                        .graphicsLayer {
+                            val p = max(statusProgress.value, dialogProgress.value)
+                            translationY = size.height * statusProgress.value
+                            renderEffect = if (p > 0.01f) {
+                                val r = 12.dp.toPx() * p
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                         .drawBackdrop(
                             backdrop = backdrop,
                             shape = { RectangleShape },
                             effects = {
-                                // 扩大采样区域：左右边缘与小白条区域完全覆盖模糊，避免透出背景文字
-                                padding = maxOf(padding, 48.dp.toPx())
+                                // 为全宽底栏扩展采样区域，避免左右边缘和系统导航区模糊缺失
+                                padding = maxOf(padding, 40.dp.toPx())
                                 vibrancy()
                                 blur(10f.dp.toPx())
                             },
@@ -730,7 +748,7 @@ private fun MiuixLiquidGlassBottomBar(
                         scaleX = s
                         scaleY = s
                     },
-                    shadow = { Shadow(alpha = if (isLight) 0.1f else 0.2f) },
+                    shadow = { Shadow(radius = 12.dp, alpha = if (isLight) 0.2f else 0.3f) },
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .then(dampedDragAnimation.modifier)
@@ -888,8 +906,6 @@ private fun MiuixCollapsingTopBar(
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
-                        // 与底栏一致：扩大采样区域保证边缘完全覆盖模糊
-                        padding = maxOf(padding, 48.dp.toPx())
                         vibrancy()
                         blur(10f.dp.toPx())
                     },
