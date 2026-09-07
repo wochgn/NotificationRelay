@@ -359,13 +359,26 @@ private fun MiuixAppContent(
                     ) {
                         pageArea()
                     }
-                    MiuixCollapsingTopBar(
-                        title = title,
-                        scrollProgress = scrollProgress,
-                        backdrop = backdrop,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
                 }
+                // 顶栏独立于组外采样（组内嵌套 graphicsLayer 会使其毛玻璃失效），转场时同步缩放+模糊
+                MiuixCollapsingTopBar(
+                    title = title,
+                    scrollProgress = scrollProgress,
+                    backdrop = backdrop,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            val p = max(statusProgress.value, dialogProgress.value)
+                            scaleX = 1f - 0.06f * p
+                            scaleY = 1f - 0.06f * p
+                            renderEffect = if (p > 0.01f) {
+                                val r = 12.dp.toPx() * p
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
+                )
                 // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
@@ -460,13 +473,26 @@ private fun MiuixAppContent(
                         Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
                             pageArea()
                         }
-                        MiuixCollapsingTopBar(
-                            title = title,
-                            scrollProgress = scrollProgress,
-                            backdrop = backdrop,
-                            modifier = Modifier.align(Alignment.TopCenter)
-                        )
                     }
+                    // 顶栏独立于组外采样（组内嵌套 graphicsLayer 会使其毛玻璃失效），转场时同步缩放+模糊
+                    MiuixCollapsingTopBar(
+                        title = title,
+                        scrollProgress = scrollProgress,
+                        backdrop = backdrop,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .graphicsLayer {
+                                val p = max(statusProgress.value, dialogProgress.value)
+                                scaleX = 1f - 0.06f * p
+                                scaleY = 1f - 0.06f * p
+                                renderEffect = if (p > 0.01f) {
+                                    val r = 10.dp.toPx() * p
+                                    BlurEffect(r, r, TileMode.Clamp)
+                                } else {
+                                    null
+                                }
+                            }
+                    )
                     // 主页面压暗层
                     Box(
                         Modifier
@@ -531,13 +557,26 @@ private fun MiuixAppContent(
                     ) {
                         pageArea()
                     }
-                    MiuixCollapsingTopBar(
-                        title = title,
-                        scrollProgress = scrollProgress,
-                        backdrop = backdrop,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
                 }
+                // 顶栏独立于组外采样（组内嵌套 graphicsLayer 会使其毛玻璃失效），转场时同步缩放+模糊
+                MiuixCollapsingTopBar(
+                    title = title,
+                    scrollProgress = scrollProgress,
+                    backdrop = backdrop,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .graphicsLayer {
+                            val p = max(statusProgress.value, dialogProgress.value)
+                            scaleX = 1f - 0.06f * p
+                            scaleY = 1f - 0.06f * p
+                            renderEffect = if (p > 0.01f) {
+                                val r = 12.dp.toPx() * p
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
+                )
                 // 表面 92% 不透明：小白条区域不透出背景文字；非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
                 val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.92f)
                 Box(
@@ -748,7 +787,7 @@ private fun MiuixLiquidGlassBottomBar(
                         scaleX = s
                         scaleY = s
                     },
-                    shadow = { Shadow(radius = 12.dp, alpha = if (isLight) 0.2f else 0.3f) },
+                    shadow = { Shadow(radius = 20.dp, alpha = if (isLight) 0.35f else 0.45f) },
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .then(dampedDragAnimation.modifier)
