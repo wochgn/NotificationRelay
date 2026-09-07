@@ -133,6 +133,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -162,6 +163,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import top.yukonga.miuix.kmp.theme.ThemeController
@@ -247,6 +249,17 @@ private fun MiuixAppContent(
         val corner = insets?.getRoundedCorner(android.view.RoundedCorner.POSITION_TOP_LEFT)
         if (corner != null) with(density) { corner.radius.toDp() } else 32.dp
     }
+
+    // —— OverlayDialog 背景效果：压暗由弹窗自身遮罩承担，这里对主界面同步缩小+渐进模糊 ——
+    val dialogVisible = remember { mutableStateOf(false) }
+    val dialogProgress = remember { Animatable(0f) }
+    LaunchedEffect(dialogVisible.value) {
+        dialogProgress.animateTo(
+            if (dialogVisible.value) 1f else 0f,
+            tween(durationMillis = 300, easing = StatusPageEasing)
+        )
+    }
+
     // 三个页面由 HorizontalPager 按顺序拼接；未选页面位于屏幕外。
     // beyondViewportPageCount=2 保证三个页面常驻，设备→设置滚动时应用页真实经过屏幕。
     val currentTabIndex = miuixTabs.indexOfFirst { it.key == currentTab }.coerceAtLeast(0)
@@ -281,7 +294,8 @@ private fun MiuixAppContent(
                     "devices" -> MiuixDevicesScreen(
                         manager,
                         deviceScrollProgress,
-                        onOpenStatusPage = { showStatusPage.value = true }
+                        onOpenStatusPage = { showStatusPage.value = true },
+                        dialogVisible = dialogVisible
                     )
                     "apps" -> MiuixAppsScreen()
                     "settings" -> MiuixSettingsScreen(
@@ -325,7 +339,7 @@ private fun MiuixAppContent(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val p = statusProgress.value
+                            val p = max(statusProgress.value, dialogProgress.value)
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
@@ -369,14 +383,37 @@ private fun MiuixAppContent(
                         .padding(bottom = 24.dp)
                         .fillMaxWidth(barFraction)
                         .height(64.dp)
-                        .graphicsLayer { translationY = (size.height + 24.dp.toPx()) * statusProgress.value }
+                        .graphicsLayer {
+                            val ps = statusProgress.value
+                            val p = max(ps, dialogProgress.value)
+                            translationY = (size.height + 24.dp.toPx()) * ps
+                            scaleX = 1f - 0.06f * p
+                            scaleY = 1f - 0.06f * p
+                            renderEffect = if (p > 0.01f) {
+                                val r = 18.dp.toPx() * p
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                 )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
                 MiuixStatusDetailPage(
                     onBack = { showStatusPage.value = false },
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { translationX = size.width * (1f - statusProgress.value) }
+                        .graphicsLayer {
+                            val pd = dialogProgress.value
+                            translationX = size.width * (1f - statusProgress.value)
+                            scaleX = 1f - 0.06f * pd
+                            scaleY = 1f - 0.06f * pd
+                            renderEffect = if (pd > 0.01f) {
+                                val r = 18.dp.toPx() * pd
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                 )
             }
@@ -405,7 +442,7 @@ private fun MiuixAppContent(
                         Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                val p = statusProgress.value
+                                val p = max(statusProgress.value, dialogProgress.value)
                                 scaleX = 1f - 0.06f * p
                                 scaleY = 1f - 0.06f * p
                                 renderEffect = if (p > 0.01f) {
@@ -438,7 +475,18 @@ private fun MiuixAppContent(
                         onBack = { showStatusPage.value = false },
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { translationX = size.width * (1f - statusProgress.value) }
+                            .graphicsLayer {
+                            val pd = dialogProgress.value
+                            translationX = size.width * (1f - statusProgress.value)
+                            scaleX = 1f - 0.06f * pd
+                            scaleY = 1f - 0.06f * pd
+                            renderEffect = if (pd > 0.01f) {
+                                val r = 18.dp.toPx() * pd
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                             .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                     )
                 }
@@ -453,7 +501,7 @@ private fun MiuixAppContent(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val p = statusProgress.value
+                            val p = max(statusProgress.value, dialogProgress.value)
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
@@ -492,7 +540,19 @@ private fun MiuixAppContent(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .graphicsLayer { translationY = size.height * statusProgress.value }
+                        .graphicsLayer {
+                            val ps = statusProgress.value
+                            val p = max(ps, dialogProgress.value)
+                            translationY = size.height * ps
+                            scaleX = 1f - 0.06f * p
+                            scaleY = 1f - 0.06f * p
+                            renderEffect = if (p > 0.01f) {
+                                val r = 18.dp.toPx() * p
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                         .drawBackdrop(
                             backdrop = backdrop,
                             shape = { RectangleShape },
@@ -531,7 +591,18 @@ private fun MiuixAppContent(
                     onBack = { showStatusPage.value = false },
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { translationX = size.width * (1f - statusProgress.value) }
+                        .graphicsLayer {
+                            val pd = dialogProgress.value
+                            translationX = size.width * (1f - statusProgress.value)
+                            scaleX = 1f - 0.06f * pd
+                            scaleY = 1f - 0.06f * pd
+                            renderEffect = if (pd > 0.01f) {
+                                val r = 18.dp.toPx() * pd
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                 )
             }
@@ -890,7 +961,8 @@ private data class MiuixDeviceUi(
 private fun MiuixDevicesScreen(
     manager: BleRelayManager,
     scrollProgress: MutableState<Float>,
-    onOpenStatusPage: () -> Unit
+    onOpenStatusPage: () -> Unit,
+    dialogVisible: MutableState<Boolean>
 ) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
@@ -981,6 +1053,10 @@ private fun MiuixDevicesScreen(
 
     @Suppress("UNUSED_EXPRESSION") refresh
     val state = snapshot()
+    // 弹窗（取消配对/配对确认）显示时驱动背景缩小+模糊
+    LaunchedEffect(deleteId, state.peers) {
+        dialogVisible.value = deleteId != null || state.peers.any { it.needsConfirm }
+    }
     val connectedKeys = state.peers
         .flatMap { listOf(it.deviceId, it.address) }
         .filter(String::isNotBlank)
@@ -1011,7 +1087,8 @@ private fun MiuixDevicesScreen(
                             deleteId = null
                             refresh++
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
                     )
                 }
             }
@@ -1033,7 +1110,12 @@ private fun MiuixDevicesScreen(
                 )
                 Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(text = "拒绝", onClick = { manager.rejectPairing(pendingPair.deviceId) }, modifier = Modifier.weight(1f))
-                    TextButton(text = "确认配对", onClick = { manager.acceptPairing(pendingPair.deviceId) }, modifier = Modifier.weight(1f))
+                    TextButton(
+                        text = "确认配对",
+                        onClick = { manager.acceptPairing(pendingPair.deviceId) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
                 }
             }
         }
