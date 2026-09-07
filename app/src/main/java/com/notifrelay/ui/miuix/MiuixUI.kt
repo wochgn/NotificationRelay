@@ -92,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -268,6 +269,7 @@ private fun MiuixAppContent(
         pageCount = { miuixTabs.size }
     )
     LaunchedEffect(currentTabIndex) {
+        if (pagerState.currentPage == currentTabIndex) return@LaunchedEffect
         val distance = abs(currentTabIndex - pagerState.currentPage).coerceAtLeast(1)
         pagerState.animateScrollToPage(
             page = currentTabIndex,
@@ -277,12 +279,18 @@ private fun MiuixAppContent(
             )
         )
     }
+    val onTabChangeUpdated by rememberUpdatedState(onTabChange)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            onTabChangeUpdated(miuixTabs[page].key)
+        }
+    }
     val pages: @Composable () -> Unit = {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
             beyondViewportPageCount = 2,
-            userScrollEnabled = false,
+            userScrollEnabled = !showStatusPage.value && !dialogVisible.value,
             key = { index -> miuixTabs[index].key }
         ) { index ->
             Box(
@@ -314,14 +322,10 @@ private fun MiuixAppContent(
 
     // 液态玻璃采样源：记录页面内容，供顶栏毛玻璃、底栏与玻璃选项框折射
     val backdrop = rememberLayerBackdrop()
-    // 页面内容层：避开顶栏（状态栏 + 40dp），底部余量由各页面自带
+    // 页面内容铺满屏幕；各页面用可滚动的顶部 contentPadding 避开顶栏，
+    // 滚动后内容才能真实进入顶栏下方并被 backdrop 模糊。
     val pageArea: @Composable () -> Unit = {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .padding(top = MiuixTopBarContentHeight)
-        ) { pages() }
+        Box(Modifier.fillMaxSize()) { pages() }
     }
 
     // 开启液态玻璃底栏时：手机与 Pad 统一使用底部悬浮玻璃栏（Pad 不再显示侧边栏）
@@ -360,24 +364,12 @@ private fun MiuixAppContent(
                         pageArea()
                     }
                 }
-                // 顶栏独立于组外采样（组内嵌套 graphicsLayer 会使其毛玻璃失效），转场时同步缩放+模糊
+                // 顶栏必须直接消费 backdrop；额外 graphicsLayer 会破坏投影坐标，导致毛玻璃失效。
                 MiuixCollapsingTopBar(
                     title = title,
                     scrollProgress = scrollProgress,
                     backdrop = backdrop,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .graphicsLayer {
-                            val p = max(statusProgress.value, dialogProgress.value)
-                            scaleX = 1f - 0.06f * p
-                            scaleY = 1f - 0.06f * p
-                            renderEffect = if (p > 0.01f) {
-                                val r = 12.dp.toPx() * p
-                                BlurEffect(r, r, TileMode.Clamp)
-                            } else {
-                                null
-                            }
-                        }
+                    modifier = Modifier.align(Alignment.TopCenter)
                 )
                 // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
                 MiuixLiquidGlassBottomBar(
@@ -474,24 +466,12 @@ private fun MiuixAppContent(
                             pageArea()
                         }
                     }
-                    // 顶栏独立于组外采样（组内嵌套 graphicsLayer 会使其毛玻璃失效），转场时同步缩放+模糊
+                    // 顶栏直接消费 backdrop，避免额外图层破坏投影坐标。
                     MiuixCollapsingTopBar(
                         title = title,
                         scrollProgress = scrollProgress,
                         backdrop = backdrop,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .graphicsLayer {
-                                val p = max(statusProgress.value, dialogProgress.value)
-                                scaleX = 1f - 0.06f * p
-                                scaleY = 1f - 0.06f * p
-                                renderEffect = if (p > 0.01f) {
-                                    val r = 10.dp.toPx() * p
-                                    BlurEffect(r, r, TileMode.Clamp)
-                                } else {
-                                    null
-                                }
-                            }
+                        modifier = Modifier.align(Alignment.TopCenter)
                     )
                     // 主页面压暗层
                     Box(
@@ -558,24 +538,12 @@ private fun MiuixAppContent(
                         pageArea()
                     }
                 }
-                // 顶栏独立于组外采样（组内嵌套 graphicsLayer 会使其毛玻璃失效），转场时同步缩放+模糊
+                // 顶栏直接消费 backdrop，避免额外图层破坏投影坐标。
                 MiuixCollapsingTopBar(
                     title = title,
                     scrollProgress = scrollProgress,
                     backdrop = backdrop,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .graphicsLayer {
-                            val p = max(statusProgress.value, dialogProgress.value)
-                            scaleX = 1f - 0.06f * p
-                            scaleY = 1f - 0.06f * p
-                            renderEffect = if (p > 0.01f) {
-                                val r = 12.dp.toPx() * p
-                                BlurEffect(r, r, TileMode.Clamp)
-                            } else {
-                                null
-                            }
-                        }
+                    modifier = Modifier.align(Alignment.TopCenter)
                 )
                 // 表面 92% 不透明：小白条区域不透出背景文字；非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
                 val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.92f)
@@ -760,6 +728,21 @@ private fun MiuixLiquidGlassBottomBar(
     val tabScale = { lerp(1f, 1.2f, dampedDragAnimation.pressProgress) }
 
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+        // 独立外阴影层：与 backdrop 的高光/折射分离，确保阴影围绕整个 capsule 向外扩散。
+        val shadowColor = Color.Black.copy(alpha = if (isLight) 0.34f else 0.5f)
+        Box(
+            Modifier
+                .matchParentSize()
+                .padding(4.dp)
+                .shadow(
+                    elevation = 18.dp,
+                    shape = Capsule(),
+                    clip = false,
+                    ambientColor = shadowColor,
+                    spotColor = shadowColor
+                )
+                .background(Color.Black.copy(alpha = 0.01f), Capsule())
+        )
         // 基础玻璃栏：模糊 + 内容，按压时整栏轻微放大
         Row(
             Modifier
@@ -787,7 +770,7 @@ private fun MiuixLiquidGlassBottomBar(
                         scaleX = s
                         scaleY = s
                     },
-                    shadow = { Shadow(radius = 20.dp, alpha = if (isLight) 0.35f else 0.45f) },
+                    shadow = { Shadow(alpha = 0f) },
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .then(dampedDragAnimation.modifier)
@@ -934,8 +917,8 @@ private fun MiuixCollapsingTopBar(
     val density = LocalDensity.current
     val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
     val sp = scrollProgress.value
-    // 表面 85% 不透明：磨砂质感下模糊清晰可见，且无透明漏底
-    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.85f)
+    // 保留足够透明度，让滚入顶栏下方的内容能明显呈现磨砂模糊。
+    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.78f)
     Box(
         modifier
             .fillMaxWidth()
@@ -1212,6 +1195,8 @@ private fun MiuixDevicesScreen(
 
     val listState = rememberLazyListState()
     val density = LocalDensity.current
+    val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
+        MiuixTopBarContentHeight
     val titleFadePx = with(density) { 56.dp.toPx() }
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
@@ -1224,7 +1209,10 @@ private fun MiuixDevicesScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         state = listState,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 4.dp, bottom = 96.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = topContentInset + 4.dp,
+            bottom = 96.dp
+        ),
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         item(key = "page-title") {
@@ -1656,9 +1644,11 @@ private fun MiuixAppsScreen() {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    val density = LocalDensity.current
+    val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
+        MiuixTopBarContentHeight
+    Column(Modifier.fillMaxSize().padding(top = topContentInset)) {
         // 应用页头部固定不滚动，页面大标题固定显示（不接入滚动淡入）
-        val density = LocalDensity.current
         Text(
             text = "应用",
             style = MiuixTheme.textStyles.title1,
@@ -1773,6 +1763,8 @@ private fun MiuixSettingsScreen(
     val manager = remember { BleRelayManager.get(context) }
 
     val density = LocalDensity.current
+    val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
+        MiuixTopBarContentHeight
     val titleFadePx = with(density) { 56.dp.toPx() }
     LaunchedEffect(scrollState) {
         snapshotFlow { scrollState.value }.collect {
@@ -1781,7 +1773,10 @@ private fun MiuixSettingsScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(scrollState),
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(scrollState)
+            .padding(top = topContentInset),
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         MiuixPageTitle("设置", scrollProgress)

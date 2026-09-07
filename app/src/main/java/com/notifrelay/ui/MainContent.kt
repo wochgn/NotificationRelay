@@ -9,17 +9,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -41,6 +32,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -87,8 +80,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,11 +104,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
 import com.notifrelay.BleRelayManager
 import com.notifrelay.DeviceInfo
 import com.notifrelay.DiscoveryState
@@ -140,37 +130,8 @@ private val destinations = listOf(
 private fun routeIndex(route: String?): Int =
     destinations.indexOfFirst { it.route == route }.coerceAtLeast(0)
 
-// M3 Expressive 强调曲线：减速段柔入，加速段快出，过渡错峰进行，
-// 避免新旧两个页面同时做全屏动画导致掉帧。
+// M3 Expressive 减速曲线，用于底栏/侧栏点击后的 Pager 定位动画。
 private val EmphasizedDecelerate = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
-private val EmphasizedAccelerate = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
-
-private val tabEnterTransition: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
-    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
-    val direction = if (forward) 1 else -1
-    slideInHorizontally(tween(340, delayMillis = 60, easing = EmphasizedDecelerate)) { full -> direction * full / 5 } +
-        fadeIn(tween(240, delayMillis = 60))
-}
-private val tabExitTransition: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
-    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
-    val direction = if (forward) -1 else 1
-    slideOutHorizontally(tween(110, easing = EmphasizedAccelerate)) { full -> direction * full / 10 } +
-        fadeOut(tween(90))
-}
-
-// 大屏（左侧栏布局）下导航在侧边，页面切换改为纵向滑动
-private val tabEnterTransitionWide: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> EnterTransition = {
-    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
-    val direction = if (forward) 1 else -1
-    slideInVertically(tween(340, delayMillis = 60, easing = EmphasizedDecelerate)) { full -> direction * full / 5 } +
-        fadeIn(tween(240, delayMillis = 60))
-}
-private val tabExitTransitionWide: AnimatedContentTransitionScope<androidx.navigation.NavBackStackEntry>.() -> ExitTransition = {
-    val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
-    val direction = if (forward) -1 else 1
-    slideOutVertically(tween(110, easing = EmphasizedAccelerate)) { full -> direction * full / 10 } +
-        fadeOut(tween(90))
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -182,7 +143,6 @@ fun RelayMainContent(
     settingsScrollState: ScrollState
 ) {
     val context = LocalContext.current
-    val navController = rememberNavController()
     val route = currentTab
     val destination = destinations.firstOrNull { it.route == route } ?: destinations.first()
     var pairingVersion by remember { mutableIntStateOf(0) }
@@ -220,23 +180,27 @@ fun RelayMainContent(
         )
     }
 
-    // 外部（风格切换等）改变目标页时同步导航，保持页面位置
-    LaunchedEffect(currentTab) {
-        if (navController.currentBackStackEntry?.destination?.route != currentTab) {
-            navController.navigate(currentTab) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
-        }
-    }
-
     fun navigateTo(item: Destination) {
         onTabChange(item.route)
-        navController.navigate(item.route) {
-            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+    }
+
+    val currentTabIndex = routeIndex(currentTab)
+    val pagerState = rememberPagerState(
+        initialPage = currentTabIndex,
+        pageCount = { destinations.size }
+    )
+    LaunchedEffect(currentTabIndex) {
+        if (pagerState.currentPage != currentTabIndex) {
+            pagerState.animateScrollToPage(
+                page = currentTabIndex,
+                animationSpec = tween(340, easing = EmphasizedDecelerate)
+            )
+        }
+    }
+    val onTabChangeUpdated by rememberUpdatedState(onTabChange)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            onTabChangeUpdated(destinations[page].route)
         }
     }
 
@@ -259,22 +223,19 @@ fun RelayMainContent(
             )
         )
     }
-    // 大屏（侧边导航）下切换动画为纵向，手机（底部导航）保持横向
-    val enter = if (widthSizeClass == WindowWidthSizeClass.Compact) tabEnterTransition else tabEnterTransitionWide
-    val exit = if (widthSizeClass == WindowWidthSizeClass.Compact) tabExitTransition else tabExitTransitionWide
-    val navPages: @Composable (PaddingValues) -> Unit = { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "devices",
-            modifier = Modifier.padding(padding),
-            enterTransition = enter,
-            exitTransition = exit,
-            popEnterTransition = enter,
-            popExitTransition = exit
-        ) {
-            composable("devices") { DevicesScreen(manager, widthSizeClass != WindowWidthSizeClass.Compact) }
-            composable("apps") { AppsScreen() }
-            composable("settings") { SettingsScreen(settingsScrollState) }
+    val pagerPages: @Composable (PaddingValues) -> Unit = { padding ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize().padding(padding),
+            beyondViewportPageCount = 2,
+            userScrollEnabled = pendingPair == null,
+            key = { index -> destinations[index].route }
+        ) { page ->
+            when (destinations[page].route) {
+                "devices" -> DevicesScreen(manager, widthSizeClass != WindowWidthSizeClass.Compact)
+                "apps" -> AppsScreen()
+                "settings" -> SettingsScreen(settingsScrollState)
+            }
         }
     }
 
@@ -294,7 +255,7 @@ fun RelayMainContent(
                     }
                 }
             }
-        ) { padding -> navPages(padding) }
+        ) { padding -> pagerPages(padding) }
     } else {
         // 平板/横屏/大屏：左侧导航栏（较默认更宽），内容区占满剩余空间
         Row(Modifier.fillMaxSize()) {
@@ -302,7 +263,7 @@ fun RelayMainContent(
                 currentRoute = route,
                 railWidth = if (widthSizeClass == WindowWidthSizeClass.Expanded) 112.dp else 96.dp
             ) { navigateTo(it) }
-            Scaffold(topBar = topBar, modifier = Modifier.weight(1f)) { padding -> navPages(padding) }
+            Scaffold(topBar = topBar, modifier = Modifier.weight(1f)) { padding -> pagerPages(padding) }
         }
     }
 }
