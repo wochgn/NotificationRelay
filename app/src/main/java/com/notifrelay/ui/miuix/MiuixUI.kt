@@ -366,7 +366,7 @@ private fun MiuixAppContent(
                         modifier = Modifier.align(Alignment.TopCenter)
                     )
                 }
-                // 底栏随二级页进入向下滑出，退出时向上滑回；不做缩小，仅与主页面整体参与压暗/模糊（描边随之保持不缩）
+                // 底栏随二级页进入向下滑出，退出时向上滑回；不缩小、不做外层模糊，仅参与整体压暗（描边保持完整）
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
@@ -376,17 +376,7 @@ private fun MiuixAppContent(
                         .padding(bottom = 24.dp)
                         .fillMaxWidth(barFraction)
                         .height(64.dp)
-                        .graphicsLayer {
-                            val ps = statusProgress.value
-                            val p = max(ps, dialogProgress.value)
-                            translationY = (size.height + 24.dp.toPx()) * ps
-                            renderEffect = if (p > 0.01f) {
-                                val r = 12.dp.toPx() * p
-                                BlurEffect(r, r, TileMode.Clamp)
-                            } else {
-                                null
-                            }
-                        }
+                        .graphicsLayer { translationY = (size.height + 24.dp.toPx()) * statusProgress.value }
                 )
                 // 主页面压暗层（覆盖内容与底栏）
                 Box(
@@ -545,25 +535,15 @@ private fun MiuixAppContent(
                     Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            val ps = statusProgress.value
-                            val p = max(ps, dialogProgress.value)
-                            translationY = size.height * ps
-                            renderEffect = if (p > 0.01f) {
-                                val r = 12.dp.toPx() * p
-                                BlurEffect(r, r, TileMode.Clamp)
-                            } else {
-                                null
-                            }
-                        }
+                        .graphicsLayer { translationY = size.height * statusProgress.value }
                         .drawBackdrop(
                             backdrop = backdrop,
                             shape = { RectangleShape },
                             effects = {
-                                // 为全宽底栏扩展采样区域，避免左右边缘和系统导航区模糊缺失
-                                padding = maxOf(padding, 40.dp.toPx())
+                                // 扩大采样区域：左右边缘与小白条区域完全覆盖模糊，避免透出背景文字
+                                padding = maxOf(padding, 48.dp.toPx())
                                 vibrancy()
-                                blur(14f.dp.toPx())
+                                blur(10f.dp.toPx())
                             },
                             highlight = { Highlight(alpha = 0f) },
                             shadow = { Shadow(alpha = 0f) },
@@ -737,7 +717,7 @@ private fun MiuixLiquidGlassBottomBar(
                     shape = { Capsule() },
                     effects = {
                         vibrancy()
-                        blur(4f.dp.toPx())
+                        blur(10f.dp.toPx())
                         lens(
                             refractionHeight = 24f.dp.toPx(),
                             refractionAmount = 24f.dp.toPx()
@@ -774,7 +754,7 @@ private fun MiuixLiquidGlassBottomBar(
                     shape = { Capsule() },
                     effects = {
                         vibrancy()
-                        blur(4f.dp.toPx())
+                        blur(10f.dp.toPx())
                         lens(
                             refractionHeight = 24f.dp.toPx(),
                             refractionAmount = 24f.dp.toPx()
@@ -908,8 +888,10 @@ private fun MiuixCollapsingTopBar(
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
+                        // 与底栏一致：扩大采样区域保证边缘完全覆盖模糊
+                        padding = maxOf(padding, 48.dp.toPx())
                         vibrancy()
-                        blur(14f.dp.toPx())
+                        blur(10f.dp.toPx())
                     },
                     highlight = { Highlight(alpha = 0f) },
                     shadow = { Shadow(alpha = 0f) },
