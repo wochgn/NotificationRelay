@@ -11,6 +11,7 @@ import android.util.LruCache
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -166,6 +167,9 @@ import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
 private data class MiuixTab(val key: String, val label: String, val icon: ImageVector)
 
+/** 二级页转场曲线：先快后慢（ease-out，无回弹）。 */
+private val StatusPageEasing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
+
 private val miuixTabs = listOf(
     MiuixTab("devices", "设备", Icons.Outlined.Devices),
     MiuixTab("apps", "应用", Icons.Outlined.Apps),
@@ -225,7 +229,7 @@ private fun MiuixAppContent(
     LaunchedEffect(showStatusPage.value) {
         statusProgress.animateTo(
             if (showStatusPage.value) 1f else 0f,
-            tween(durationMillis = 420, easing = FastOutSlowInEasing)
+            tween(durationMillis = 420, easing = StatusPageEasing)
         )
     }
     BackHandler(enabled = showStatusPage.value) { showStatusPage.value = false }
