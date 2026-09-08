@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
@@ -40,8 +40,8 @@ android {
         applicationId = "com.notifrelay"
         minSdk = 31
         targetSdk = 35
-        versionCode = 2696
-        versionName = "1.9"
+    versionCode = 2698
+    versionName = "1.9.1"
     }
 
     buildTypes {

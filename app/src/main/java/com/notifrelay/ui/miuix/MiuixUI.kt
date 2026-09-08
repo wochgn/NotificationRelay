@@ -1681,6 +1681,14 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     val currentDevice = repo.resolvedDeviceName()
+    val appVersion = remember {
+        try {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            "${info.versionName}(${info.longVersionCode})"
+        } catch (e: Exception) {
+            ""
+        }
+    }
     val dark = isSystemInDarkTheme()
     val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
     val unopened = buildList {
@@ -1741,7 +1749,7 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
                 }
             }
             Text(
-                text = "版本：1.9",
+                text = "版本：$appVersion",
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(start = 16.dp, bottom = 12.dp),
@@ -1813,7 +1821,8 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
     val foregroundEnabled = remember(refresh) { repo.foregroundEnabled }
     val appVersion = remember {
         try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            "${info.versionName}(${info.longVersionCode})"
         } catch (e: Exception) {
             ""
         }
@@ -2229,8 +2238,9 @@ private fun DeviceActionRow(
 /** 设备信息行：标签加粗在上，说明值在下（参考 KernelSU 首页信息卡排版）。 */
 @Composable
 private fun MiuixInfoRow(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 9.2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Text(text = label, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(9.6.dp))
         Text(
             text = value,
             style = MiuixTheme.textStyles.body2,
