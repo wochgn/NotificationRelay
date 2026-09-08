@@ -1879,7 +1879,11 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
         }
         MiuixSectionTitle("设备信息")
         MiuixCard {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            // 四项（APP 版本/设备型号/系统版本/安卓版本）各自为整体，整体间距 +20%
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(3.2.dp)
+            ) {
                 MiuixInfoRow("APP 版本", appVersion)
                 MiuixInfoRow("设备型号", Build.MODEL)
                 MiuixInfoRow("系统版本", Build.VERSION.INCREMENTAL)
@@ -2238,9 +2242,8 @@ private fun DeviceActionRow(
 /** 设备信息行：标签加粗在上，说明值在下（参考 KernelSU 首页信息卡排版）。 */
 @Composable
 private fun MiuixInfoRow(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text(text = label, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(9.6.dp))
         Text(
             text = value,
             style = MiuixTheme.textStyles.body2,
