@@ -1708,6 +1708,12 @@ class BleRelayManager private constructor(context: Context) {
 
         // 标题格式：<应用名> | <来源设备型号/名称>
         val titleLine = listOf(data.app, data.device).filter { it.isNotBlank() }.joinToString(" | ")
+        // 正文名格式：<原通知主标题>：<原通知内容>（保留原通知标题；任一为空时退回另一项）
+        val bodyText = when {
+            data.title.isBlank() -> data.text
+            data.text.isBlank() -> data.title
+            else -> "${data.title}：${data.text}"
+        }
 
         val liveNotification = buildOtpLiveNotification(data.app, data.title, data.text, data.otpCode, appIcon)
         val n = liveNotification
@@ -1715,8 +1721,8 @@ class BleRelayManager private constructor(context: Context) {
                 .setSmallIcon(R.drawable.ic_notification)
                 .setLargeIcon(buildBadgedIcon(appIcon))
                 .setContentTitle(titleLine)
-                .setContentText(data.text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(data.text))
+                .setContentText(bodyText)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(bodyText))
                 // 不设置 onlyAlertOnce：原机通知状态刷新重发时，远端重新提醒一次
                 .setAutoCancel(true)
                 .build()
@@ -1805,8 +1811,15 @@ class BleRelayManager private constructor(context: Context) {
                 .setSmallIcon(R.drawable.ic_sms)
                 .setLargeIcon(appIcon)
                 .setContentTitle(otpCode)
-                .setContentText(text)
-                .setSubText(listOf(app, title).filter { it.isNotBlank() }.joinToString(" · "))
+                // 与普通流转通知一致：正文 = <主标题>：<内容>，应用名显示在 subText
+                .setContentText(
+                    when {
+                        title.isBlank() -> text
+                        text.isBlank() -> title
+                        else -> "$title：$text"
+                    }
+                )
+                .setSubText(app.takeIf { it.isNotBlank() })
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setOnlyAlertOnce(true)
                 .setOngoing(true)
