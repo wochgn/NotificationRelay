@@ -40,6 +40,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_ONBOARDED = "onboarded"
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_DEVICE_TYPE_OVERRIDES = "device_type_overrides"
     }
 
     // 设备名：null 表示使用系统设备名
@@ -169,6 +170,26 @@ class SettingsRepository private constructor(context: Context) {
 
     fun findByDeviceId(deviceId: String): SavedDevice? =
         savedDevices().firstOrNull { it.deviceId == deviceId }
+
+    // 设备类型手动指定：deviceId -> "phone" / "tablet"（未指定时按名称自动识别）
+    fun deviceTypeOverride(deviceId: String): String? {
+        val raw = prefs.getString(KEY_DEVICE_TYPE_OVERRIDES, null) ?: return null
+        return try {
+            JSONObject(raw).optString(deviceId).takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun setDeviceTypeOverride(deviceId: String, type: String?) {
+        val obj = try {
+            JSONObject(prefs.getString(KEY_DEVICE_TYPE_OVERRIDES, null) ?: "{}")
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        if (type == null) obj.remove(deviceId) else obj.put(deviceId, type)
+        prefs.edit().putString(KEY_DEVICE_TYPE_OVERRIDES, obj.toString()).apply()
+    }
 
     private fun toJsonArray(list: List<SavedDevice>): JSONArray =
         JSONArray().apply {
