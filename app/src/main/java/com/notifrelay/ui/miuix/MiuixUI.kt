@@ -778,15 +778,12 @@ private fun MiuixLiquidGlassBottomBar(
             Modifier
                 .matchParentSize()
                 .padding(4.dp)
-                .graphicsLayer {
-                    alpha = 1f - 0.85f * effectProgress().coerceIn(0f, 1f)
-                }
                 .dropShadow(
                     shape = CircleShape,
                     shadow = ComposeShadow(
-                        radius = 10.dp,
+                        radius = 18.dp,
                         color = Color.Black,
-                        alpha = if (isLight) 0.16f else 0.26f
+                        alpha = if (isLight) 0.18f else 0.28f
                     )
                 )
                 .background(Color.Black.copy(alpha = 0.01f), CircleShape)
@@ -880,36 +877,6 @@ private fun MiuixLiquidGlassBottomBar(
             // 移动玻璃指示器：折射页面+标签内容，按压放大并带速度液态变形。
             if (tabWidthPx > 0f) {
                 val tabWidthDp = with(density) { tabWidthPx.toDp() }
-
-                // 拖拽发光层：静止时 alpha=0，拖拽时蓝色光晕随按压进度渐入并跟随形变。
-                Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .graphicsLayer {
-                            val progressOffset = if (
-                                bottomBarDragging || bottomBarNavigationPending || bottomBarDrivenPager
-                            ) {
-                                dampedDragAnimation.value * tabWidthPx
-                            } else {
-                                pagePosition() * tabWidthPx
-                            }
-                            translationX = progressOffset + panelOffset
-                            scaleX = dampedDragAnimation.scaleX
-                            scaleY = dampedDragAnimation.scaleY
-                            alpha = dampedDragAnimation.pressProgress
-                        }
-                        .dropShadow(
-                            shape = CircleShape,
-                            shadow = ComposeShadow(
-                                radius = 12.dp,
-                                color = Color(0xFF0088FF),
-                                alpha = 0.45f
-                            )
-                        )
-                        .background(Color(0xFF0088FF).copy(alpha = 0.08f), CircleShape)
-                        .height(56.dp)
-                        .width(tabWidthDp)
-                )
 
                 Box(
                 Modifier
@@ -1137,11 +1104,16 @@ private fun MiuixDevicesScreen(
     var manualDisconnect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteDialogExiting by remember { mutableStateOf(false) }
     var deleteTitle by remember { mutableStateOf("") }
     var deleteMessage by remember { mutableStateOf("") }
     var showPairDialog by remember { mutableStateOf(false) }
+    var pairDialogExiting by remember { mutableStateOf(false) }
     var pairDialogPeer by remember { mutableStateOf<PeerState?>(null) }
     var pairHandledIds by remember { mutableStateOf(setOf<String>()) }
+    val dialogAnimationScope = rememberCoroutineScope()
+    val deleteDialogExitProgress = remember { Animatable(0f) }
+    val pairDialogExitProgress = remember { Animatable(0f) }
 
     fun snapshot(): MiuixDeviceUi {
         val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -1223,8 +1195,9 @@ private fun MiuixDevicesScreen(
     @Suppress("UNUSED_EXPRESSION") refresh
     val state = snapshot()
     // 弹窗（取消配对/配对确认）显示时驱动背景缩小+模糊+压暗
-    LaunchedEffect(showDeleteDialog, showPairDialog) {
-        dialogVisible.value = showDeleteDialog || showPairDialog
+    LaunchedEffect(showDeleteDialog, deleteDialogExiting, showPairDialog, pairDialogExiting) {
+        dialogVisible.value = (showDeleteDialog && !deleteDialogExiting) ||
+            (showPairDialog && !pairDialogExiting)
     }
     val connectedKeys = state.peers
         .flatMap { listOf(it.deviceId, it.address) }
@@ -1244,25 +1217,49 @@ private fun MiuixDevicesScreen(
         else
             "确定要删除已配对设备「$name」吗？"
         deleteId = id
+        deleteDialogExiting = false
+        dialogAnimationScope.launch { deleteDialogExitProgress.snapTo(0f) }
         showDeleteDialog = true
+    }
+
+    fun dismissDeleteDialog(afterStart: (() -> Unit)? = null) {
+        if (deleteDialogExiting) return
+        afterStart?.invoke()
+        deleteDialogExiting = true
+        dialogAnimationScope.launch {
+            deleteDialogExitProgress.snapTo(0f)
+            deleteDialogExitProgress.animateTo(
+                1f,
+                tween(durationMillis = 520, easing = StatusPageEasing)
+            )
+            showDeleteDialog = false
+        }
     }
 
     OverlayDialog(
         show = showDeleteDialog,
         title = deleteTitle,
-        onDismissRequest = { showDeleteDialog = false },
+        modifier = Modifier.graphicsLayer {
+            translationY = (size.height + 48.dp.toPx()) * deleteDialogExitProgress.value
+        },
+        onDismissRequest = { dismissDeleteDialog() },
+        onDismissFinished = {
+            deleteDialogExiting = false
+            dialogAnimationScope.launch { deleteDialogExitProgress.snapTo(0f) }
+        },
         enableWindowDim = false
     ) {
         Column {
             Text(deleteMessage)
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(text = "取消", onClick = { showDeleteDialog = false }, modifier = Modifier.weight(1f))
+                TextButton(text = "取消", onClick = { dismissDeleteDialog() }, modifier = Modifier.weight(1f))
                 TextButton(
                     text = "取消配对",
                     onClick = {
-                        deleteId?.let { manager.unpair(it) }
-                        showDeleteDialog = false
-                        refresh++
+                        dismissDeleteDialog {
+                            deleteId?.let { manager.unpair(it) }
+                            refresh++
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.textButtonColorsPrimary()
@@ -1278,14 +1275,37 @@ private fun MiuixDevicesScreen(
             pending.deviceId !in pairHandledIds
         ) {
             pairDialogPeer = pending
+            pairDialogExiting = false
+            pairDialogExitProgress.snapTo(0f)
             showPairDialog = true
+        }
+    }
+
+    fun dismissPairDialog(afterStart: (() -> Unit)? = null) {
+        if (pairDialogExiting) return
+        afterStart?.invoke()
+        pairDialogExiting = true
+        dialogAnimationScope.launch {
+            pairDialogExitProgress.snapTo(0f)
+            pairDialogExitProgress.animateTo(
+                1f,
+                tween(durationMillis = 520, easing = StatusPageEasing)
+            )
+            showPairDialog = false
         }
     }
     OverlayDialog(
         show = showPairDialog,
         title = "确认配对设备",
-        onDismissRequest = { showPairDialog = false },
-        onDismissFinished = { pairDialogPeer = null },
+        modifier = Modifier.graphicsLayer {
+            translationY = (size.height + 48.dp.toPx()) * pairDialogExitProgress.value
+        },
+        onDismissRequest = { dismissPairDialog() },
+        onDismissFinished = {
+            pairDialogPeer = null
+            pairDialogExiting = false
+            dialogAnimationScope.launch { pairDialogExitProgress.snapTo(0f) }
+        },
         enableWindowDim = false
     ) {
         pairDialogPeer?.let { peer ->
@@ -1298,18 +1318,20 @@ private fun MiuixDevicesScreen(
                     TextButton(
                         text = "拒绝",
                         onClick = {
-                            pairHandledIds = pairHandledIds + peer.deviceId
-                            manager.rejectPairing(peer.deviceId)
-                            showPairDialog = false
+                            dismissPairDialog {
+                                pairHandledIds = pairHandledIds + peer.deviceId
+                                manager.rejectPairing(peer.deviceId)
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
                         text = "确认配对",
                         onClick = {
-                            pairHandledIds = pairHandledIds + peer.deviceId
-                            manager.acceptPairing(peer.deviceId)
-                            showPairDialog = false
+                            dismissPairDialog {
+                                pairHandledIds = pairHandledIds + peer.deviceId
+                                manager.acceptPairing(peer.deviceId)
+                            }
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary()
