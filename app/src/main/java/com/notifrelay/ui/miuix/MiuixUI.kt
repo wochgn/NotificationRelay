@@ -78,6 +78,7 @@ import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Tablet
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.Devices
@@ -286,6 +287,7 @@ private fun MiuixAppContent(
     val showDevicePage = remember { mutableStateOf(false) }
     var devicePagePeerId by remember { mutableStateOf<String?>(null) }
     var devicePagePeerName by remember { mutableStateOf("") }
+    var devicePageAddress by remember { mutableStateOf("") }
     val devicePageProgress = remember { Animatable(0f) }
     LaunchedEffect(showDevicePage.value) {
         devicePageProgress.animateTo(
@@ -382,9 +384,10 @@ private fun MiuixAppContent(
                         manager,
                         deviceScrollProgress,
                         onOpenStatusPage = { showStatusPage.value = true },
-                        onOpenDevicePage = { peer ->
-                            devicePagePeerId = peer.deviceId
-                            devicePagePeerName = peer.name
+                        onOpenDevicePage = { deviceId, name ->
+                            devicePagePeerId = deviceId
+                            devicePagePeerName = name
+                            devicePageAddress = ""
                             showDevicePage.value = true
                         },
                         onDeleteRequest = { openDeleteDialog(it) },
@@ -544,6 +547,7 @@ private fun MiuixAppContent(
                 MiuixDeviceDetailPage(
                     peerId = devicePagePeerId,
                     peerName = devicePagePeerName,
+                    address = devicePageAddress,
                     onBack = { showDevicePage.value = false },
                     onDeleteRequest = { openDeleteDialog(it) },
                     modifier = Modifier
@@ -654,17 +658,18 @@ private fun MiuixAppContent(
                     MiuixDeviceDetailPage(
                         peerId = devicePagePeerId,
                         peerName = devicePagePeerName,
+                        address = devicePageAddress,
                         onBack = { showDevicePage.value = false },
                         onDeleteRequest = { openDeleteDialog(it) },
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                val pd = devicePageProgress.value
-                                translationX = size.width * (1f - pd)
+                                translationX = size.width * (1f - devicePageProgress.value)
+                                val pd = dialogProgress.value
                                 scaleX = 1f - 0.06f * pd
                                 scaleY = 1f - 0.06f * pd
                                 renderEffect = if (pd > 0.01f) {
-                                    val r = 10.dp.toPx() * pd
+                                    val r = 12.dp.toPx() * pd
                                     BlurEffect(r, r, TileMode.Clamp)
                                 } else {
                                     null
@@ -873,13 +878,14 @@ private fun MiuixAppContent(
                 MiuixDeviceDetailPage(
                     peerId = devicePagePeerId,
                     peerName = devicePagePeerName,
+                    address = devicePageAddress,
                     onBack = { showDevicePage.value = false },
                     onDeleteRequest = { openDeleteDialog(it) },
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val pd = devicePageProgress.value
-                            translationX = size.width * (1f - pd)
+                            translationX = size.width * (1f - devicePageProgress.value)
+                            val pd = dialogProgress.value
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
                             renderEffect = if (pd > 0.01f) {
@@ -1347,7 +1353,7 @@ private fun MiuixDevicesScreen(
     manager: BleRelayManager,
     scrollProgress: MutableState<Float>,
     onOpenStatusPage: () -> Unit,
-    onOpenDevicePage: (PeerState) -> Unit,
+    onOpenDevicePage: (String, String) -> Unit,
     onDeleteRequest: (String) -> Unit,
     dialogVisible: MutableState<Boolean>
 ) {
@@ -1561,8 +1567,10 @@ private fun MiuixDevicesScreen(
         item {
             MiuixWorkStatusCard(state, onClick = onOpenStatusPage)
         }
-        // 已连接设备：每台一张蓝色卡片，置于工作状态卡下方，点击进入设备详情二级页
+        // 已连接设备：每台一张蓝色卡片，置于工作状态卡下方，点击进入设备详情二级页；
+        // 卡片之间无类别标题时间距增大 60%
         items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
+            Box(Modifier.padding(top = MiuixPageItemSpacing * 0.6f)) {
             MiuixConnectedPeerCard(
                 peer = peer,
                 isTablet = run {
@@ -1574,15 +1582,21 @@ private fun MiuixDevicesScreen(
                         else -> peer.name.contains("pad", ignoreCase = true)
                     }
                 },
-                onClick = { onOpenDevicePage(peer) }
+                onClick = { onOpenDevicePage(peer.deviceId, peer.name) }
             )
+            }
         }
         if (savedRows.isNotEmpty()) {
-            item { MiuixSectionTitle("已配对设备") }
-            item {
-                MiuixCard {
-                    savedRows.forEach { row ->
-                        MiuixDeviceRow(manager, row, { onDeleteRequest(row.id) })
+            item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
+            savedRows.forEachIndexed { index, row ->
+                item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
+                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.6f else 0.dp)) {
+                        MiuixSavedDeviceCard(
+                            name = row.name.ifBlank { "未知设备" },
+                            deviceId = row.id,
+                            address = row.address,
+                            onClick = { onOpenDevicePage(row.id, row.name) }
+                        )
                     }
                 }
             }
@@ -1797,10 +1811,74 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
  * 已连接设备详情二级页：与工作状态二级页一致的转场与结构。
  * 内容：大标题为设备名；"设备类型指定"卡片（点击后选项从卡片处就地展开）；"操作"类别卡（查找/断开/取消配对）。
  */
+/** 已配对（未连接）设备卡片：排版对齐蓝色已连接卡片，点击进入设备详情二级页。 */
+@Composable
+private fun MiuixSavedDeviceCard(
+    name: String,
+    deviceId: String,
+    address: String,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val repo = remember { SettingsRepository.get(context) }
+    val isTablet = when (deviceId.takeIf(String::isNotBlank)?.let { repo.deviceTypeOverride(it) }) {
+        "tablet" -> true
+        "phone" -> false
+        else -> name.contains("pad", ignoreCase = true)
+    }
+    Card(
+        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+        insideMargin = PaddingValues(0.dp),
+        onClick = onClick,
+        showIndication = true,
+        pressFeedbackType = PressFeedbackType.None
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .background(MiuixTheme.colorScheme.surfaceContainer, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceContainer
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "未连接",
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+        }
+    }
+}
+
 @Composable
 private fun MiuixDeviceDetailPage(
     peerId: String?,
     peerName: String,
+    address: String,
     onBack: () -> Unit,
     onDeleteRequest: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -1823,9 +1901,15 @@ private fun MiuixDeviceDetailPage(
     val peer = remember(refresh, peerId) {
         manager.currentState().peers.firstOrNull { it.deviceId == peerId }
     }
-    // 设备断开/取消配对后自动关闭二级页
-    LaunchedEffect(peerId, peer == null) {
-        if (peerId != null && peer == null) onBack()
+    // 设备从连接与配对列表中移除后自动关闭二级页
+    val deviceExists = remember(refresh, peerId) {
+        peerId != null && (
+            manager.currentState().peers.any { it.deviceId == peerId } ||
+                repo.findByDeviceId(peerId) != null
+            )
+    }
+    LaunchedEffect(deviceExists) {
+        if (peerId != null && !deviceExists) onBack()
     }
     val savedName = remember(refresh, peerId) {
         peerId?.let { repo.findByDeviceId(it)?.name }
@@ -1958,29 +2042,39 @@ private fun MiuixDeviceDetailPage(
             }
         }
 
-        // 操作：查找设备 / 断开连接（黄色）/ 取消配对（红色）
+        // 操作：已连接 → 查找设备 / 断开连接（黄色）/ 取消配对（红色）；未连接 → 连接 / 取消配对
         MiuixSectionTitle("操作")
         MiuixCard {
             Column {
-                DeviceActionRow(
-                    icon = Icons.Outlined.Search,
-                    text = if (peer?.finding == true) "停止查找" else "查找设备",
-                    color = MiuixTheme.colorScheme.onSurface
-                ) {
-                    peer?.let {
-                        if (it.finding) manager.cancelFindRemote(it.deviceId)
-                        else manager.findRemoteDevice(it.deviceId)
+                if (peer != null) {
+                    DeviceActionRow(
+                        icon = Icons.Outlined.Search,
+                        text = if (peer.finding) "停止查找" else "查找设备",
+                        color = MiuixTheme.colorScheme.onSurface
+                    ) {
+                        if (peer.finding) manager.cancelFindRemote(peer.deviceId)
+                        else manager.findRemoteDevice(peer.deviceId)
                     }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                    DeviceActionRow(
+                        icon = Icons.Outlined.LinkOff,
+                        text = "断开连接",
+                        color = Color(0xFFE6A23C)
+                    ) {
+                        manager.disconnect(peer.deviceId)
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                } else {
+                    DeviceActionRow(
+                        icon = Icons.Outlined.Link,
+                        text = "连接",
+                        color = MiuixTheme.colorScheme.primary
+                    ) {
+                        if (address.isNotBlank()) manager.connectTo(address)
+                        else peerId?.let { manager.connectToSaved(it) }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-                DeviceActionRow(
-                    icon = Icons.Outlined.LinkOff,
-                    text = "断开连接",
-                    color = Color(0xFFE6A23C)
-                ) {
-                    peer?.let { manager.disconnect(it.deviceId) }
-                }
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 DeviceActionRow(
                     icon = Icons.Outlined.DeleteOutline,
                     text = "取消配对",
@@ -2095,7 +2189,7 @@ private fun MiuixConnectedPeerCard(
         ),
         onClick = onClick,
         showIndication = true,
-        pressFeedbackType = PressFeedbackType.Tilt
+        pressFeedbackType = PressFeedbackType.None
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
