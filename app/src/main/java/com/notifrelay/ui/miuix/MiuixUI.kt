@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.ScrollState
@@ -92,7 +93,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -103,7 +104,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.graphics.shadow.Shadow as ComposeShadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -269,6 +270,7 @@ private fun MiuixAppContent(
         initialPage = currentTabIndex,
         pageCount = { miuixTabs.size }
     )
+    var bottomBarDrivenPager by remember { mutableStateOf(false) }
     LaunchedEffect(currentTabIndex) {
         if (pagerState.isScrollInProgress || pagerState.currentPage == currentTabIndex) return@LaunchedEffect
         val distance = abs(currentTabIndex - pagerState.currentPage).coerceAtLeast(1)
@@ -283,9 +285,11 @@ private fun MiuixAppContent(
     val onTabChangeUpdated by rememberUpdatedState(onTabChange)
     LaunchedEffect(pagerState) {
         snapshotFlow {
-            if (pagerState.isScrollInProgress) pagerState.targetPage else pagerState.settledPage
-        }.collect { page ->
+            Triple(pagerState.isScrollInProgress, pagerState.targetPage, pagerState.settledPage)
+        }.collect { (scrolling, targetPage, settledPage) ->
+            val page = if (scrolling) targetPage else settledPage
             onTabChangeUpdated(miuixTabs[page].key)
+            if (!scrolling) bottomBarDrivenPager = false
         }
     }
     val pages: @Composable () -> Unit = {
@@ -374,55 +378,29 @@ private fun MiuixAppContent(
                     backdrop = backdrop,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
-                // 阴影独立于底栏 graphicsLayer：仅保留环境阴影，使四周等距向外发散且不被 BlurEffect 裁切。
-                val barShadowColor = Color.Black.copy(alpha = if (isSystemInDarkTheme()) 0.62f else 0.48f)
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                        .fillMaxWidth(barFraction)
-                        .height(64.dp)
-                        .offset {
-                            IntOffset(
-                                0,
-                                ((64.dp.roundToPx() + 24.dp.roundToPx()) * statusProgress.value).roundToInt()
-                            )
-                        }
-                        .padding(4.dp)
-                        .shadow(
-                            elevation = 22.dp,
-                            shape = Capsule(),
-                            clip = false,
-                            ambientColor = barShadowColor,
-                            spotColor = Color.Transparent
-                        )
-                        .background(Color.Black.copy(alpha = 0.02f), Capsule())
-                )
                 // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
-                    pageSwipeInProgress = pagerState.isScrollInProgress,
+                    bottomBarDrivenPager = bottomBarDrivenPager,
+                    pageSwipeInProgress = pagerState.isScrollInProgress && !bottomBarDrivenPager,
                     effectProgress = { max(statusProgress.value, dialogProgress.value) },
                     pagePosition = {
                         (pagerState.currentPage + pagerState.currentPageOffsetFraction)
                             .coerceIn(0f, miuixTabs.lastIndex.toFloat())
                     },
-                    onSelect = onTabChange,
+                    onSelect = { key ->
+                        val target = miuixTabs.indexOfFirst { it.key == key }
+                        if (target >= 0 && target != pagerState.currentPage) bottomBarDrivenPager = true
+                        onTabChange(key)
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 24.dp)
                         .fillMaxWidth(barFraction)
                         .height(64.dp)
                         .graphicsLayer {
-                            val p = max(statusProgress.value, dialogProgress.value)
                             translationY = (size.height + 24.dp.toPx()) * statusProgress.value
-                            renderEffect = if (p > 0.01f) {
-                                val r = 12.dp.toPx() * p
-                                BlurEffect(r, r, TileMode.Clamp)
-                            } else {
-                                null
-                            }
                         }
                 )
                 // 主页面压暗层（覆盖内容与底栏）
@@ -585,53 +563,54 @@ private fun MiuixAppContent(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .graphicsLayer {
-                            val p = max(statusProgress.value, dialogProgress.value)
                             translationY = size.height * statusProgress.value
-                            renderEffect = if (p > 0.01f) {
-                                val r = 12.dp.toPx() * p
-                                BlurEffect(r, r, TileMode.Clamp)
-                            } else {
-                                null
-                            }
                         }
-                        .drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { RectangleShape },
-                            effects = {
-                                // 为全宽底栏扩展采样区域，避免左右边缘和系统导航区模糊缺失
-                                padding = maxOf(padding, 40.dp.toPx())
-                                vibrancy()
-                                blur(10f.dp.toPx())
-                            },
-                            highlight = { Highlight(alpha = 0f) },
-                            shadow = { Shadow(alpha = 0f) },
-                            innerShadow = { InnerShadow(alpha = 0f) },
-                            onDrawSurface = { drawRect(surfaceColor) }
-                        )
                 ) {
-                    // 底栏与内容之间的灰色分界线
-                    HorizontalDivider(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
                             .graphicsLayer {
-                                alpha = if (max(statusProgress.value, dialogProgress.value) > 0.01f) 0f else 1f
+                                val p = max(statusProgress.value, dialogProgress.value)
+                                renderEffect = if (p > 0.01f) {
+                                    val r = 12.dp.toPx() * p
+                                    BlurEffect(r, r, TileMode.Clamp)
+                                } else {
+                                    null
+                                }
                             }
-                    )
-                    NavigationBar(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color.Transparent,
-                        showDivider = false,
-                        defaultWindowInsetsPadding = true
-                    ) {
-                        miuixTabs.forEach { item ->
-                            NavigationBarItem(
-                                selected = currentTab == item.key,
-                                onClick = { onTabChange(item.key) },
-                                icon = item.icon,
-                                label = item.label
+                            .drawBackdrop(
+                                backdrop = backdrop,
+                                shape = { RectangleShape },
+                                effects = {
+                                    // 为全宽底栏扩展采样区域，避免左右边缘和系统导航区模糊缺失
+                                    padding = maxOf(padding, 40.dp.toPx())
+                                    vibrancy()
+                                    blur(10f.dp.toPx())
+                                },
+                                highlight = { Highlight(alpha = 0f) },
+                                shadow = { Shadow(alpha = 0f) },
+                                innerShadow = { InnerShadow(alpha = 0f) },
+                                onDrawSurface = { drawRect(surfaceColor) }
                             )
+                    ) {
+                        NavigationBar(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color.Transparent,
+                            showDivider = false,
+                            defaultWindowInsetsPadding = true
+                        ) {
+                            miuixTabs.forEach { item ->
+                                NavigationBarItem(
+                                    selected = currentTab == item.key,
+                                    onClick = { onTabChange(item.key) },
+                                    icon = item.icon,
+                                    label = item.label
+                                )
+                            }
                         }
                     }
+                    // 分割线位于模糊图层外：转场中持续显示并随上层遮罩压暗，不产生缓存拖影。
+                    HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
                 }
                 // 主页面压暗层（覆盖内容与底栏）
                 Box(
@@ -680,6 +659,7 @@ private fun MiuixAppContent(
 private fun MiuixLiquidGlassBottomBar(
     backdrop: Backdrop,
     currentTab: String,
+    bottomBarDrivenPager: Boolean,
     pageSwipeInProgress: Boolean,
     effectProgress: () -> Float,
     pagePosition: () -> Float,
@@ -693,6 +673,8 @@ private fun MiuixLiquidGlassBottomBar(
     val tabsBackdrop = rememberLayerBackdrop()
     val density = LocalDensity.current
     val animationScope = rememberCoroutineScope()
+    var bottomBarDragging by remember { mutableStateOf(false) }
+    var bottomBarNavigationPending by remember { mutableStateOf(false) }
 
     var tabWidthPx by remember { mutableFloatStateOf(0f) }
     var totalWidthPx by remember { mutableFloatStateOf(0f) }
@@ -731,18 +713,29 @@ private fun MiuixLiquidGlassBottomBar(
             pressedScale = 78f / 56f,
             canDrag = { offset -> offset.x in 0f..totalWidthPx },
             onDragStarted = { position ->
+                bottomBarDragging = true
                 updateValue(indexAt(position.x).toFloat())
             },
             onDragStopped = {
                 val targetIndex = targetValue.roundToInt().coerceIn(0, miuixTabs.lastIndex)
                 if (currentIndex != targetIndex) {
                     currentIndex = targetIndex
+                    // 先在本地锁住位置源，避免父级程序翻页状态晚一帧到达时指示框跳回旧页。
+                    bottomBarNavigationPending = true
                     onSelectedUpdated(miuixTabs[targetIndex].key)
                 }
                 updateValue(targetIndex.toFloat())
                 animationScope.launch {
                     offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
                 }
+                bottomBarDragging = false
+            },
+            onDragCancelled = {
+                updateValue(currentIndex.toFloat())
+                animationScope.launch {
+                    offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                }
+                bottomBarDragging = false
             },
             onDrag = { _, dragAmount ->
                 if (tabWidthPx > 0f && dragAmount.x != 0f) {
@@ -758,10 +751,21 @@ private fun MiuixLiquidGlassBottomBar(
         )
     }
 
-    LaunchedEffect(selectedIndex, pageSwipeInProgress) {
-        if (pageSwipeInProgress) return@LaunchedEffect
+    LaunchedEffect(selectedIndex, pageSwipeInProgress, bottomBarDrivenPager) {
+        if (bottomBarDrivenPager) {
+            bottomBarNavigationPending = true
+            return@LaunchedEffect
+        }
+        if (pageSwipeInProgress || bottomBarNavigationPending) return@LaunchedEffect
         currentIndex = selectedIndex
         dampedDragAnimation.snapToValue(selectedIndex.toFloat())
+    }
+    LaunchedEffect(bottomBarDrivenPager) {
+        if (!bottomBarDrivenPager && bottomBarNavigationPending) {
+            bottomBarNavigationPending = false
+            currentIndex = selectedIndex
+            dampedDragAnimation.snapToValue(selectedIndex.toFloat())
+        }
     }
 
     // 标签项不携带 clickable：点击统一由阻尼拖拽手势处理（按下定位、抬起吸附切换页面），
@@ -769,8 +773,42 @@ private fun MiuixLiquidGlassBottomBar(
     val tabScale = { lerp(1f, 1.2f, dampedDragAnimation.pressProgress) }
 
     Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
-        // 基础玻璃栏：模糊 + 内容，按压时整栏轻微放大
-        Row(
+        // KernelSU 同款独立外阴影：零偏移，围绕整个底栏向四周发散。
+        Box(
+            Modifier
+                .matchParentSize()
+                .padding(4.dp)
+                .graphicsLayer {
+                    alpha = 1f - 0.85f * effectProgress().coerceIn(0f, 1f)
+                }
+                .dropShadow(
+                    shape = CircleShape,
+                    shadow = ComposeShadow(
+                        radius = 10.dp,
+                        color = Color.Black,
+                        alpha = if (isLight) 0.16f else 0.26f
+                    )
+                )
+                .background(Color.Black.copy(alpha = 0.01f), CircleShape)
+        )
+
+        // 仅玻璃主体和内容接受二级页/弹窗模糊；固定轮廓与外阴影留在模糊层外，避免拖影。
+        Box(
+            Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    val progress = effectProgress()
+                    renderEffect = if (progress > 0.01f) {
+                        val radius = 12.dp.toPx() * progress
+                        BlurEffect(radius, radius, TileMode.Clamp)
+                    } else {
+                        null
+                    }
+                },
+            contentAlignment = Alignment.CenterStart
+        ) {
+            // 基础玻璃栏：模糊 + 内容，按压时整栏轻微放大
+            Row(
             Modifier
                 .onGloballyPositioned { coords ->
                     totalWidthPx = coords.size.width.toFloat()
@@ -780,7 +818,7 @@ private fun MiuixLiquidGlassBottomBar(
                 .graphicsLayer { translationX = panelOffset }
                 .drawBackdrop(
                     backdrop = backdrop,
-                    shape = { Capsule() },
+                    shape = { CircleShape },
                     effects = {
                         vibrancy()
                         blur(10f.dp.toPx())
@@ -789,9 +827,7 @@ private fun MiuixLiquidGlassBottomBar(
                             refractionAmount = 24f.dp.toPx()
                         )
                     },
-                    highlight = {
-                        Highlight.Default.copy(alpha = if (effectProgress() > 0.01f) 0f else 0.75f)
-                    },
+                    highlight = { Highlight(alpha = 0f) },
                     layerBlock = {
                         val width = size.width.coerceAtLeast(1f)
                         val s = lerp(1f, 1f + 6f.dp.toPx() / width, dampedDragAnimation.pressProgress)
@@ -806,12 +842,12 @@ private fun MiuixLiquidGlassBottomBar(
                 .fillMaxWidth()
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically
-        ) {
-            MiuixLiquidGlassTabItems(currentTab = currentTab, contentScale = tabScale)
-        }
+            ) {
+                MiuixLiquidGlassTabItems(currentTab = currentTab, contentScale = tabScale)
+            }
 
-        // 隐藏标签采样层：供移动指示器折射标签内容
-        Row(
+            // 隐藏标签采样层：供移动指示器折射标签内容；所有默认描边显式关闭。
+            Row(
             Modifier
                 .clearAndSetSemantics { }
                 .alpha(0f)
@@ -819,7 +855,7 @@ private fun MiuixLiquidGlassBottomBar(
                 .graphicsLayer { translationX = panelOffset }
                 .drawBackdrop(
                     backdrop = backdrop,
-                    shape = { Capsule() },
+                    shape = { CircleShape },
                     effects = {
                         vibrancy()
                         blur(10f.dp.toPx())
@@ -828,24 +864,60 @@ private fun MiuixLiquidGlassBottomBar(
                             refractionAmount = 24f.dp.toPx()
                         )
                     },
+                    highlight = { Highlight(alpha = 0f) },
+                    shadow = { Shadow(alpha = 0f) },
+                    innerShadow = { InnerShadow(alpha = 0f) },
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .height(56.dp)
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
-        ) {
-            MiuixLiquidGlassTabItems(currentTab = currentTab, contentScale = tabScale)
-        }
+            ) {
+                MiuixLiquidGlassTabItems(currentTab = currentTab, contentScale = tabScale)
+            }
 
-        // 移动玻璃指示器：折射页面+标签内容，按压放大并带速度液态变形
-        if (tabWidthPx > 0f) {
-            val tabWidthDp = with(density) { tabWidthPx.toDp() }
-            Box(
+            // 移动玻璃指示器：折射页面+标签内容，按压放大并带速度液态变形。
+            if (tabWidthPx > 0f) {
+                val tabWidthDp = with(density) { tabWidthPx.toDp() }
+
+                // 拖拽发光层：静止时 alpha=0，拖拽时蓝色光晕随按压进度渐入并跟随形变。
+                Box(
+                    Modifier
+                        .padding(horizontal = 4.dp)
+                        .graphicsLayer {
+                            val progressOffset = if (
+                                bottomBarDragging || bottomBarNavigationPending || bottomBarDrivenPager
+                            ) {
+                                dampedDragAnimation.value * tabWidthPx
+                            } else {
+                                pagePosition() * tabWidthPx
+                            }
+                            translationX = progressOffset + panelOffset
+                            scaleX = dampedDragAnimation.scaleX
+                            scaleY = dampedDragAnimation.scaleY
+                            alpha = dampedDragAnimation.pressProgress
+                        }
+                        .dropShadow(
+                            shape = CircleShape,
+                            shadow = ComposeShadow(
+                                radius = 12.dp,
+                                color = Color(0xFF0088FF),
+                                alpha = 0.45f
+                            )
+                        )
+                        .background(Color(0xFF0088FF).copy(alpha = 0.08f), CircleShape)
+                        .height(56.dp)
+                        .width(tabWidthDp)
+                )
+
+                Box(
                 Modifier
                     .padding(horizontal = 4.dp)
                     .graphicsLayer {
-                        val progressOffset = if (dampedDragAnimation.pressProgress > 0.01f) {
+                            val progressOffset = if (
+                                bottomBarDragging || bottomBarNavigationPending || bottomBarDrivenPager
+                            ) {
                             dampedDragAnimation.value * tabWidthPx
                         } else {
                             pagePosition() * tabWidthPx
@@ -854,7 +926,7 @@ private fun MiuixLiquidGlassBottomBar(
                     }
                     .drawBackdrop(
                         backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
-                        shape = { Capsule() },
+                        shape = { CircleShape },
                         effects = {
                             val progress = dampedDragAnimation.pressProgress
                             if (progress > 0.01f) {
@@ -865,9 +937,10 @@ private fun MiuixLiquidGlassBottomBar(
                                 )
                             }
                         },
+                        // 严格静止无描边；仅拖拽时按 KernelSU 的 pressProgress 渐入高光。
                         highlight = {
-                            val progress = dampedDragAnimation.pressProgress.takeIf { it >= 0.05f } ?: 0f
-                            Highlight.Default.copy(alpha = if (effectProgress() > 0.01f) 0f else progress)
+                            val progress = dampedDragAnimation.pressProgress
+                            Highlight.Default.copy(alpha = if (progress < 0.03f) 0f else progress)
                         },
                         shadow = { Shadow(alpha = 0f) },
                         layerBlock = {
@@ -878,10 +951,10 @@ private fun MiuixLiquidGlassBottomBar(
                             scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
                         },
                         innerShadow = {
-                            val progress = dampedDragAnimation.pressProgress.takeIf { it >= 0.05f } ?: 0f
+                            val progress = dampedDragAnimation.pressProgress
                             InnerShadow(
-                                radius = 8f.dp * progress,
-                                alpha = if (effectProgress() > 0.01f) 0f else progress
+                                radius = 8.dp * progress,
+                                alpha = if (progress < 0.03f) 0f else progress
                             )
                         },
                         onDrawSurface = {
@@ -896,8 +969,24 @@ private fun MiuixLiquidGlassBottomBar(
                     )
                     .height(56.dp)
                     .width(tabWidthDp)
-            )
+                )
+            }
         }
+
+        // 固定底栏轮廓不进入 RenderEffect，转场时持续显示并由上层遮罩统一压暗。
+        Box(
+            Modifier
+                .matchParentSize()
+                .padding(4.dp)
+                .graphicsLayer {
+                    alpha = 1f - 0.85f * effectProgress().coerceIn(0f, 1f)
+                }
+                .border(
+                    width = 0.5.dp,
+                    color = Color.White.copy(alpha = if (isLight) 0.28f else 0.12f),
+                    shape = CircleShape
+                )
+        )
     }
 }
 
