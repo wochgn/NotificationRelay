@@ -1924,7 +1924,7 @@ private fun MiuixSavedDeviceCard(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = "未连接",
-                    fontSize = 12.sp,
+                    style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
@@ -2233,7 +2233,7 @@ private fun MiuixInfoRow(label: String, value: String) {
         Text(text = label, fontWeight = FontWeight.Medium)
         Text(
             text = value,
-            fontSize = 12.sp,
+            style = MiuixTheme.textStyles.body2,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
     }
@@ -2300,7 +2300,7 @@ private fun MiuixConnectedPeerCard(
                         peer.android.ifBlank { "版本未知" },
                         if (peer.battery >= 0) "电量 ${peer.battery}%" else "电量未知"
                     ).joinToString(" · "),
-                    fontSize = 12.sp,
+                    style = MiuixTheme.textStyles.body2,
                     color = Color.White.copy(alpha = 0.78f)
                 )
             }
@@ -2344,7 +2344,7 @@ private fun MiuixDeviceRow(manager: BleRelayManager, row: MiuixDeviceRowUi, onLo
             Text(text = row.name, fontWeight = FontWeight.Medium)
             if (row.subtitle.isNotBlank()) Text(
                 text = row.subtitle,
-                fontSize = 12.sp,
+                style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
         }
@@ -2770,7 +2770,7 @@ private fun MiuixSettingsScreen(
                     Text(text = "连接测试", fontWeight = FontWeight.Medium)
                     Text(
                         text = "点击向所有已连接设备发送一条测试通知",
-                        fontSize = 12.sp,
+                        style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
