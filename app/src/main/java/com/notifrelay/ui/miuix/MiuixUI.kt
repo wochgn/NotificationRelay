@@ -402,6 +402,8 @@ private fun MiuixAppContent(
                 MiuixLiquidGlassBottomBar(
                     backdrop = backdrop,
                     currentTab = currentTab,
+                    pageSwipeInProgress = pagerState.isScrollInProgress,
+                    effectProgress = { max(statusProgress.value, dialogProgress.value) },
                     pagePosition = {
                         (pagerState.currentPage + pagerState.currentPageOffsetFraction)
                             .coerceIn(0f, miuixTabs.lastIndex.toFloat())
@@ -608,7 +610,13 @@ private fun MiuixAppContent(
                         )
                 ) {
                     // 底栏与内容之间的灰色分界线
-                    HorizontalDivider(modifier = Modifier.align(Alignment.TopCenter))
+                    HorizontalDivider(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .graphicsLayer {
+                                alpha = if (max(statusProgress.value, dialogProgress.value) > 0.01f) 0f else 1f
+                            }
+                    )
                     NavigationBar(
                         modifier = Modifier.fillMaxWidth(),
                         color = Color.Transparent,
@@ -672,6 +680,8 @@ private fun MiuixAppContent(
 private fun MiuixLiquidGlassBottomBar(
     backdrop: Backdrop,
     currentTab: String,
+    pageSwipeInProgress: Boolean,
+    effectProgress: () -> Float,
     pagePosition: () -> Float,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -748,11 +758,10 @@ private fun MiuixLiquidGlassBottomBar(
         )
     }
 
-    LaunchedEffect(selectedIndex) {
-        if (currentIndex != selectedIndex) {
-            currentIndex = selectedIndex
-            dampedDragAnimation.animateToValue(selectedIndex.toFloat())
-        }
+    LaunchedEffect(selectedIndex, pageSwipeInProgress) {
+        if (pageSwipeInProgress) return@LaunchedEffect
+        currentIndex = selectedIndex
+        dampedDragAnimation.snapToValue(selectedIndex.toFloat())
     }
 
     // 标签项不携带 clickable：点击统一由阻尼拖拽手势处理（按下定位、抬起吸附切换页面），
@@ -780,7 +789,9 @@ private fun MiuixLiquidGlassBottomBar(
                             refractionAmount = 24f.dp.toPx()
                         )
                     },
-                    highlight = { Highlight.Default.copy(alpha = 0.75f) },
+                    highlight = {
+                        Highlight.Default.copy(alpha = if (effectProgress() > 0.01f) 0f else 0.75f)
+                    },
                     layerBlock = {
                         val width = size.width.coerceAtLeast(1f)
                         val s = lerp(1f, 1f + 6f.dp.toPx() / width, dampedDragAnimation.pressProgress)
@@ -854,7 +865,10 @@ private fun MiuixLiquidGlassBottomBar(
                                 )
                             }
                         },
-                        highlight = { Highlight.Default.copy(alpha = dampedDragAnimation.pressProgress) },
+                        highlight = {
+                            val progress = dampedDragAnimation.pressProgress.takeIf { it >= 0.05f } ?: 0f
+                            Highlight.Default.copy(alpha = if (effectProgress() > 0.01f) 0f else progress)
+                        },
                         shadow = { Shadow(alpha = 0f) },
                         layerBlock = {
                             scaleX = dampedDragAnimation.scaleX
@@ -864,9 +878,10 @@ private fun MiuixLiquidGlassBottomBar(
                             scaleY *= 1f - (velocity * 0.25f).coerceIn(-0.2f, 0.2f)
                         },
                         innerShadow = {
+                            val progress = dampedDragAnimation.pressProgress.takeIf { it >= 0.05f } ?: 0f
                             InnerShadow(
-                                radius = 8f.dp * dampedDragAnimation.pressProgress,
-                                alpha = dampedDragAnimation.pressProgress
+                                radius = 8f.dp * progress,
+                                alpha = if (effectProgress() > 0.01f) 0f else progress
                             )
                         },
                         onDrawSurface = {

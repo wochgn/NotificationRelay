@@ -218,6 +218,13 @@ class DampedDragAnimation(
         }
     }
 
+    suspend fun snapToValue(value: Float) {
+        mutatorMutex.mutate {
+            valueAnimation.snapTo(value.coerceIn(valueRange))
+            velocityAnimation.snapTo(0f)
+        }
+    }
+
     private fun updateVelocity() {
         velocityTracker.addPosition(
             startMark.elapsedNow().inWholeMilliseconds,
