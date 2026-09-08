@@ -175,6 +175,8 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedCornerStyle
+import com.kyant.shapes.RoundedRectangle
 import top.yukonga.miuix.kmp.basic.NavigationRail
 import top.yukonga.miuix.kmp.basic.NavigationRailItem
 import top.yukonga.miuix.kmp.basic.NavigationRailValue
@@ -207,6 +209,9 @@ private val miuixTabs = listOf(
 )
 
 private val MiuixPageItemSpacing = 5.6.dp
+
+/** G2 连续曲率卡片圆角。 */
+private val MiuixCardShape = RoundedRectangle(16.dp, RoundedCornerStyle.Continuous)
 private val MiuixSectionTitleMargin = PaddingValues(horizontal = 28.dp, vertical = 5.28.dp)
 
 /**
@@ -888,6 +893,13 @@ private fun MiuixAppContent(
                         }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                 )
+                // 设备详情页压暗层（覆盖主页面，位于二级页之下）
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                        .background(Color.Black)
+                )
                 // 已连接设备详情二级页：与工作状态二级页一致的转场
                 MiuixDeviceDetailPage(
                     peerId = devicePagePeerId,
@@ -911,13 +923,6 @@ private fun MiuixAppContent(
                             }
                         }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
-                )
-                // 设备详情页压暗层
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
-                        .background(Color.Black)
                 )
                 // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
                 Box(
@@ -1286,14 +1291,14 @@ private fun MiuixCollapsingTopBar(
     val density = LocalDensity.current
     val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
     val sp = scrollProgress.value
-    // 保留足够透明度，让滚入顶栏下方的内容能明显呈现磨砂模糊。
-    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.62f)
+    // 页面在最顶部时顶栏整体不显示；上滑后磨砂顶栏出现。
+    val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.78f)
     Box(
         modifier
             .fillMaxWidth()
             .height(statusBarHeightDp + MiuixTopBarContentHeight)
             .then(
-                if (backdrop != null) Modifier.drawBackdrop(
+                if (backdrop != null && sp > 0.01f) Modifier.drawBackdrop(
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
@@ -1565,7 +1570,7 @@ private fun MiuixDevicesScreen(
     val density = LocalDensity.current
     val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
         MiuixTopBarContentHeight
-    val titleFadePx = with(density) { 56.dp.toPx() }
+    val titleFadePx = with(density) { 28.dp.toPx() }
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
             .collect { (index, offset) ->
@@ -1592,7 +1597,7 @@ private fun MiuixDevicesScreen(
         // 已连接设备：每台一张蓝色卡片，置于工作状态卡下方，点击进入设备详情二级页；
         // 卡片之间无类别标题时间距增大 60%
         items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
-            Box(Modifier.padding(top = MiuixPageItemSpacing * 0.6f)) {
+            Box(Modifier.padding(top = MiuixPageItemSpacing * 0.3f)) {
             MiuixConnectedPeerCard(
                 peer = peer,
                 isTablet = run {
@@ -1612,11 +1617,15 @@ private fun MiuixDevicesScreen(
             item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
             savedRows.forEachIndexed { index, row ->
                 item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
-                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.6f else 0.dp)) {
+                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.3f else 0.dp)) {
                         MiuixSavedDeviceCard(
                             name = row.name.ifBlank { "未知设备" },
                             deviceId = row.id,
                             address = row.address,
+                            onConnect = {
+                                if (row.address.isNotBlank()) manager.connectTo(row.address)
+                                else manager.connectToSaved(row.id)
+                            },
                             onClick = { onOpenDevicePage(row.id, row.name) }
                         )
                     }
@@ -1669,7 +1678,7 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     val iconTint = if (allOn) Color(0xFF36D167) else Color(0xFFE05252)
 
     Card(
-        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(MiuixCardShape),
         insideMargin = PaddingValues(0.dp),
         colors = CardDefaults.defaultColors(
             color = cardColor,
@@ -1739,7 +1748,7 @@ private fun MiuixStatusLine(label: String, enabled: Boolean) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label)
+        Text(text = label, fontWeight = FontWeight.Bold)
         Text(
             text = if (enabled) "已开启" else "未开启",
             fontWeight = FontWeight.Medium,
@@ -1849,12 +1858,13 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
     }
 }
 
-/** 已配对（未连接）设备卡片：排版对齐蓝色已连接卡片，点击进入设备详情二级页。 */
+/** 已配对（未连接）设备卡片：排版对齐蓝色已连接卡片；点击卡片直接连接，点箭头按钮进入设备详情二级页。 */
 @Composable
 private fun MiuixSavedDeviceCard(
     name: String,
     deviceId: String,
     address: String,
+    onConnect: () -> Unit,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1865,14 +1875,14 @@ private fun MiuixSavedDeviceCard(
         else -> name.contains("pad", ignoreCase = true)
     }
     Card(
-        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
-        insideMargin = PaddingValues(0.dp),
-        onClick = onClick,
-        showIndication = true,
-        pressFeedbackType = PressFeedbackType.None
+        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(MiuixCardShape),
+        insideMargin = PaddingValues(0.dp)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onConnect)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -1895,12 +1905,20 @@ private fun MiuixSavedDeviceCard(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
-            Icon(
-                imageVector = Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = "设备详情",
+                    modifier = Modifier.size(24.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
         }
     }
 }
@@ -2193,7 +2211,7 @@ private fun MiuixInfoRow(label: String, value: String) {
         Text(text = label, fontWeight = FontWeight.Medium)
         Text(
             text = value,
-            fontSize = MiuixTheme.textStyles.main.fontSize * 0.72f,
+            fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
     }
@@ -2225,7 +2243,7 @@ private fun MiuixConnectedPeerCard(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth(),
+        modifier = Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(MiuixCardShape),
         insideMargin = PaddingValues(0.dp),
         colors = CardDefaults.defaultColors(
             color = MiuixTheme.colorScheme.primary,
@@ -2437,7 +2455,11 @@ private fun MiuixAppsScreen() {
                 CircularProgressIndicator()
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 96.dp)) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 item {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "搜索应用", Modifier.weight(1f))
@@ -2445,7 +2467,7 @@ private fun MiuixAppsScreen() {
                 }
                 items(filtered, key = { it.pkg }) { app ->
                     val checked = repo.isAppInWhitelist(app.pkg)
-                    MiuixCard(modifier = Modifier.padding(vertical = 3.dp)) {
+                    MiuixCard {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -2509,7 +2531,7 @@ private fun MiuixSettingsScreen(
     val density = LocalDensity.current
     val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
         MiuixTopBarContentHeight
-    val titleFadePx = with(density) { 56.dp.toPx() }
+    val titleFadePx = with(density) { 28.dp.toPx() }
     LaunchedEffect(scrollState) {
         snapshotFlow { scrollState.value }.collect {
             scrollProgress.value = (it / titleFadePx).coerceIn(0f, 1f)
@@ -2517,14 +2539,15 @@ private fun MiuixSettingsScreen(
     }
 
     val focusManager = LocalFocusManager.current
-    var nameFieldBounds by remember { mutableStateOf<Rect?>(null) }
+    var nameCardBounds by remember { mutableStateOf<Rect?>(null) }
     var settingsRootPos by remember { mutableStateOf(Offset.Zero) }
     // 手指滑动或点击输入框以外区域时清除焦点（失焦后输入框自动恢复为当前生效的设备名）
     DisposableEffect(focusManager) {
         onDispose { }
     }
+    // 点击输入框与按钮所在的整张卡片时不清除焦点，避免保存/恢复默认按钮失效
     val clearFocusOutsideField: (Offset) -> Unit = { downInWindow ->
-        val bounds = nameFieldBounds
+        val bounds = nameCardBounds
         if (bounds == null || downInWindow !in bounds) focusManager.clearFocus()
     }
 
@@ -2560,7 +2583,9 @@ private fun MiuixSettingsScreen(
                 showResetNameDialog = false
             }
         }
-        MiuixCard {
+        MiuixCard(
+            modifier = Modifier.onGloballyPositioned { nameCardBounds = it.boundsInWindow() }
+        ) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 TextField(
                     value = deviceName,
@@ -2568,7 +2593,6 @@ private fun MiuixSettingsScreen(
                     // 失去焦点后自动恢复为当前生效的设备名
                     modifier = Modifier
                         .fillMaxWidth()
-                        .onGloballyPositioned { nameFieldBounds = it.boundsInWindow() }
                         .onFocusChanged { state ->
                             if (!state.isFocused) deviceName = repo.resolvedDeviceName()
                         }
@@ -2698,7 +2722,7 @@ private fun MiuixSettingsScreen(
             }
         }
         Card(
-            Modifier.padding(top = MiuixPageItemSpacing * 0.6f).padding(horizontal = 12.dp).fillMaxWidth(),
+            Modifier.padding(top = MiuixPageItemSpacing * 0.3f).padding(horizontal = 12.dp).fillMaxWidth(),
             onClick = { sendMiuixTestNotification(context, manager, repo) },
             showIndication = true
         ) {
@@ -2710,7 +2734,7 @@ private fun MiuixSettingsScreen(
                     Text(text = "连接测试", fontWeight = FontWeight.Medium)
                     Text(
                         text = "点击向所有已连接设备发送一条测试通知",
-                        fontSize = MiuixTheme.textStyles.main.fontSize * 0.72f,
+                        fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
@@ -2722,7 +2746,7 @@ private fun MiuixSettingsScreen(
                 )
             }
         }
-        MiuixCard(modifier = Modifier.padding(top = MiuixPageItemSpacing * 0.6f)) {
+        MiuixCard(modifier = Modifier.padding(top = MiuixPageItemSpacing * 0.3f)) {
             SelectionContainer {
                 Column(
                     Modifier.fillMaxWidth().height(240.dp)
@@ -2766,7 +2790,10 @@ private fun MiuixCard(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     Card(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .clip(MiuixCardShape),
         content = content
     )
 }
