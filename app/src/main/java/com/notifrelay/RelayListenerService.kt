@@ -53,31 +53,55 @@ class RelayListenerService : NotificationListenerService() {
         requestRebind(ComponentName(this, RelayListenerService::class.java))
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // 部分 ROM 销毁服务时不回调 onListenerDisconnected，必须在此清除绑定状态，
+        // 否则 isConnectedToListener 保持 true，requestListenerRebind 会一直被跳过
+        isConnectedToListener = false
+    }
+
     // 必须用带 RankingMap 的两参数版本。单参数版本已废弃，部分系统/ROM 不会回调它。
     override fun onNotificationPosted(sbn: StatusBarNotification, rankingMap: RankingMap) {
         // 回环防护：忽略本 App 自己发出的通知（那些正是从对端流转过来后本地弹出的），
         // 否则会把通知再转发回对端，形成无限循环。
-        if (sbn.packageName == packageName) return
+        if (sbn.packageName == packageName) {
+            EventLog.add("过滤通知[自身应用]")
+            return
+        }
 
         // 只过滤「前台服务」通知（如 Clash/VPN 的常驻通知），避免刷屏。
         // 注意不能用 !isClearable：HyperOS 会把验证码短信也标记为不可清除，会被误伤。
         val isForegroundService =
             (sbn.notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0
-        if (isForegroundService) return
+        if (isForegroundService) {
+            EventLog.add("过滤通知[前台服务][${sbn.packageName}]")
+            return
+        }
 
         // 应用过滤：开启「仅转发选中」后，只转发白名单中的应用
-        if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
+        if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) {
+            EventLog.add("过滤通知[不在白名单][${sbn.packageName}]")
+            return
+        }
 
         val settings = SettingsRepository.get(this)
         // 常驻/不可清除通知（音乐播放、下载进度等）按用户开关决定是否流转
-        if (!settings.relayOngoingEnabled && !sbn.isClearable) return
+        if (!settings.relayOngoingEnabled && !sbn.isClearable) {
+            EventLog.add("过滤通知[常驻未开启][${sbn.packageName}]")
+            return
+        }
 
         val deviceName = settings.resolvedDeviceName()
-        val json = NotificationCodec.toJson(sbn, applicationContext, deviceName)
+        val json = try {
+            NotificationCodec.toJson(sbn, applicationContext, deviceName)
+        } catch (e: Exception) {
+            EventLog.addGeneral("通知解析异常[${sbn.packageName}]：${e.message}")
+            return
+        }
         EventLog.add("本机通知 [${sbn.packageName}]")
         BleRelayManager.get(this).apply {
-            sendToRemote(json)
-            sendAppIconIfNeeded(sbn.packageName)
+            val sent = sendToRemote(json)
+            if (sent > 0) sendAppIconIfNeeded(sbn.packageName)
         }
     }
 

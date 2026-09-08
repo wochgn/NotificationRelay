@@ -77,6 +77,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         BleRelayManager.get(this).setUiVisible(true)
+        // 兼容应用内升级遗留的旧任务：按设置刷新最近任务排除状态
+        RecentsController.applyFromSettings(this)
     }
 
     override fun onPause() {

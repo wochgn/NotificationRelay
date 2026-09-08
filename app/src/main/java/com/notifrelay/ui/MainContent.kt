@@ -140,6 +140,7 @@ import com.notifrelay.EventLog
 import com.notifrelay.ForegroundServiceController
 import com.notifrelay.PeerState
 import com.notifrelay.R
+import com.notifrelay.RecentsController
 import com.notifrelay.RelayState
 import com.notifrelay.SavedDevice
 import com.notifrelay.SettingsRepository
@@ -1003,6 +1004,14 @@ private fun SettingsScreen(scrollState: ScrollState) {
             repo.foregroundEnabled = it
             if (it) ForegroundServiceController.start(context) else ForegroundServiceController.stop(context)
             toast(context, if (it) "常驻后台已开启" else "常驻后台已关闭")
+        }
+        var hideRecents by remember { mutableStateOf(repo.hideFromRecents) }
+        SettingSwitchCard(
+            "隐藏后台卡片", "开启后不在最近任务中显示本应用，桌面图标与后台通知流转不受影响", hideRecents
+        ) {
+            hideRecents = it
+            repo.hideFromRecents = it
+            RecentsController.apply(context, it)
         }
         SectionLabel("通知增强")
         SettingSwitchCard(

@@ -42,6 +42,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_DEVICE_TYPE_OVERRIDES = "device_type_overrides"
         private const val KEY_NAV_RAIL_EXPANDED = "navigation_rail_expanded"
+        private const val KEY_HIDE_FROM_RECENTS = "hide_from_recents"
     }
 
     // 设备名：null 表示使用系统设备名
@@ -101,6 +102,11 @@ class SettingsRepository private constructor(context: Context) {
     var navigationRailExpanded: Boolean
         get() = prefs.getBoolean(KEY_NAV_RAIL_EXPANDED, false)
         set(v) = prefs.edit().putBoolean(KEY_NAV_RAIL_EXPANDED, v).apply()
+
+    // 隐藏后台卡片：开启后不在最近任务中显示本应用，默认关闭
+    var hideFromRecents: Boolean
+        get() = prefs.getBoolean(KEY_HIDE_FROM_RECENTS, false)
+        set(v) = prefs.edit().putBoolean(KEY_HIDE_FROM_RECENTS, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean

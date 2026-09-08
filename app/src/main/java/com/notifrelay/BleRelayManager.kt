@@ -128,6 +128,18 @@ class BleRelayManager private constructor(context: Context) {
         // MTU 协商目标：默认 23 时每片仅 15 字节，一条通知要几十次往返；
         // 协商成功后每片可达 239 字节，显著降低流转延迟。协商失败自动回退 23。
         private const val MTU_REQUEST = 247
+        // ---- 通知待发队列（连接未就绪时短期缓存）----
+        private const val PENDING_MAX_COUNT = 32
+        private const val PENDING_MAX_BYTES = 256 * 1024
+        private const val PENDING_TTL_MS = 2 * 60_000L
+        // ---- 中心侧写入可靠性 ----
+        private const val CENTRAL_WRITE_TIMEOUT_MS = 10_000L
+        private val CENTRAL_WRITE_RETRY_DELAYS = longArrayOf(50L, 150L, 450L)
+        // ---- 外设 onNotificationSent 回调缺失时的兜底 ----
+        private const val PERIPHERAL_SENT_FALLBACK_MS = 1_000L
+        // ---- 心跳按连接状态调度 ----
+        private const val HEARTBEAT_FOREGROUND_MS = 60_000L
+        private const val HEARTBEAT_BACKGROUND_MS = 300_000L
     }
 
     enum class Role { NONE, AUTO, CENTRAL, PERIPHERAL }
@@ -144,12 +156,26 @@ class BleRelayManager private constructor(context: Context) {
         val sendQueue = ArrayDeque<ByteArray>()
         var writing = false
         var disconnectAfterCentralWrite = false
+        // 中心侧写入可靠性：in-flight 分片仅在 GATT_SUCCESS 后出队，失败限次重试
+        var inflightChunk: ByteArray? = null
+        var writeRetryCount = 0
+        var writeAwaitingCallback = false
+        val writeTimeoutRunnable = Runnable { onCentralWriteTimedOut(this) }
 
         // ---- 外设侧 ----
         var remoteDevice: BluetoothDevice? = null
         val peripheralQueue = ArrayDeque<ByteArray>()
         var peripheralSending = false
         var disconnectAfterPeripheralSend = false
+        // 外设侧：onNotificationSent 驱动队列推进，1s 兜底仅在本片待确认期间存在
+        var peripheralAwaitingSent = false
+        val peripheralSentFallbackRunnable = Runnable {
+            if (peripheralAwaitingSent) {
+                peripheralAwaitingSent = false
+                logGeneral("外设 onNotificationSent 回调缺失，使用兜底推进")
+                peripheralSendNext(this)
+            }
+        }
 
         // ---- 链路公共 ----
         @Volatile var connected = false
@@ -194,6 +220,12 @@ class BleRelayManager private constructor(context: Context) {
         }
     }
 
+    /** 待发通知（无就绪连接时短期缓存，按 pkg|key 合并更新）。 */
+    private class PendingNotif(val key: String, val json: String, val sizeBytes: Int, val enqueuedAt: Long)
+
+    private val pendingNotifications = LinkedHashMap<String, PendingNotif>()
+    @Volatile private var pendingBytes = 0
+
     private val appContext = context.applicationContext
     private val btManager: BluetoothManager =
         appContext.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -227,7 +259,14 @@ class BleRelayManager private constructor(context: Context) {
     @Volatile private var uiVisible = false
 
     fun setUiVisible(visible: Boolean) {
+        if (uiVisible == visible) return
         uiVisible = visible
+        // 前台：低延迟广播；后台保连接：均衡模式广播（已有连接不受参数切换影响）
+        if (advertiser != null) {
+            stopAdvertising()
+            startAdvertisingBeacon()
+        }
+        scheduleHeartbeat()
     }
 
     fun isUiVisible(): Boolean = uiVisible
@@ -246,13 +285,20 @@ class BleRelayManager private constructor(context: Context) {
     // 扫描结果去重累积（deviceId 优先，退回 address）
     private val discoveredDevices = LinkedHashMap<String, ScanDevice>()
 
-    // 心跳：周期向所有已连接设备上报电量
+    // 心跳：按连接状态调度——无会话完全取消，前台 60s，后台 5min
     private val handler = Handler(Looper.getMainLooper())
     private val heartbeat = object : Runnable {
         override fun run() {
             sessionsSnapshot().forEach { if (it.visibleReady()) sendStatus(it) }
-            handler.postDelayed(this, HEARTBEAT_MS)
+            scheduleHeartbeat()
         }
+    }
+
+    private fun scheduleHeartbeat() {
+        handler.removeCallbacks(heartbeat)
+        if (sessionsSnapshot().none { it.connected }) return
+        val interval = if (uiVisible) HEARTBEAT_FOREGROUND_MS else HEARTBEAT_BACKGROUND_MS
+        handler.postDelayed(heartbeat, interval)
     }
 
     // ---- 服务端（可服务多台中心） ----
@@ -277,11 +323,12 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     init {
+        // 进程启动即按设置初始化日志开关：通知监听服务等后台路径的关键诊断日志才能落盘
+        EventLog.verboseEnabled = SettingsRepository.get(appContext).verboseLogEnabled
         appContext.registerReceiver(
             bluetoothStateReceiver,
             IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
         )
-        handler.postDelayed(heartbeat, HEARTBEAT_MS)
     }
 
     private fun log(msg: String) = EventLog.add(msg)
@@ -436,10 +483,17 @@ class BleRelayManager private constructor(context: Context) {
         val adapter = btAdapter ?: return
 
         advertiser = adapter.bluetoothLeAdvertiser
+        // 前台添加设备用低延迟高功率；后台保连接降级为均衡中功率，显著降低功耗
         val advSettings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setAdvertiseMode(
+                if (uiVisible) AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY
+                else AdvertiseSettings.ADVERTISE_MODE_BALANCED
+            )
             .setConnectable(true)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+            .setTxPowerLevel(
+                if (uiVisible) AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
+                else AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM
+            )
             .build()
         val advData = AdvertiseData.Builder()
             .addServiceUuid(ParcelUuid(Constants.SERVICE_UUID))
@@ -590,7 +644,8 @@ class BleRelayManager private constructor(context: Context) {
 
     private fun maybeResumeDiscovery() {
         if (shuttingDown || autoReconnectPaused) return
-        startDiscovery()
+        // 前台（UI 可见）立即补扫；后台由前台服务按指数退避调度，降低扫描占空比
+        if (uiVisible) startDiscovery()
     }
 
     private fun closeSession(session: Session, reason: String) {
@@ -608,11 +663,16 @@ class BleRelayManager private constructor(context: Context) {
         }
         session.connected = false
         session.disconnecting = false
+        handler.removeCallbacks(session.writeTimeoutRunnable)
+        handler.removeCallbacks(session.peripheralSentFallbackRunnable)
+        session.writeAwaitingCallback = false
+        session.peripheralAwaitingSent = false
         if (removed) {
             val label = session.remoteName.ifBlank { session.address }
             log("$reason（$label）")
             notifyState()
         }
+        scheduleHeartbeat()
         maybeResumeDiscovery()
     }
 
@@ -688,11 +748,84 @@ class BleRelayManager private constructor(context: Context) {
 
     // ================= 发送 =================
 
-    /** 向所有已就绪的连接广播（通知监听服务等多目标场景使用）。 */
-    fun sendToRemote(json: String) {
-        sessionsSnapshot().forEach { session ->
-            if (session.visibleReady()) sendToSession(session, json)
+    /**
+     * 向所有已就绪的已配对连接广播；返回实际入队的目标数。
+     * 无就绪目标时进入待发队列（TTL 2 分钟、上限 32 条/256KB，按 pkg|key 合并），
+     * 握手/配对完成事件触发冲刷，而不是静默丢弃。
+     */
+    fun sendToRemote(json: String): Int {
+        val targets = sessionsSnapshot().count { session ->
+            if (session.visibleReady() && session.paired) {
+                sendToSession(session, json); true
+            } else false
         }
+        log("通知发送：就绪目标 $targets 个")
+        if (targets == 0) enqueuePending(json)
+        return targets
+    }
+
+    private fun enqueuePending(json: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val key = try {
+            val obj = JSONObject(json)
+            "${obj.optString("pkg", "")}|${obj.optString("key", "")}"
+        } catch (_: Exception) {
+            "raw|${now}"
+        }
+        synchronized(pendingNotifications) {
+            // 过期清理（入队时执行，不添加清理定时器）
+            expirePendingLocked(now)
+            // 同 pkg|key 合并更新：替换旧条目
+            pendingNotifications.remove(key)?.let { pendingBytes -= it.sizeBytes }
+            val size = json.toByteArray(Charsets.UTF_8).size
+            // 容量与条数上限：超限时丢弃最旧条目
+            while (pendingNotifications.size + 1 > PENDING_MAX_COUNT || pendingBytes + size > PENDING_MAX_BYTES) {
+                val eldest = pendingNotifications.entries.iterator().let {
+                    if (it.hasNext()) it.next().value else null
+                } ?: break
+                pendingNotifications.remove(eldest.key)
+                pendingBytes -= eldest.sizeBytes
+            }
+            pendingNotifications[key] = PendingNotif(key, json, size, now)
+            pendingBytes += size
+            log("无就绪目标，通知进入待发队列(${pendingNotifications.size} 条)")
+        }
+    }
+
+    private fun expirePendingLocked(now: Long) {
+        val it = pendingNotifications.entries.iterator()
+        while (it.hasNext()) {
+            val entry = it.next().value
+            if (now - entry.enqueuedAt > PENDING_TTL_MS) {
+                pendingBytes -= entry.sizeBytes
+                it.remove()
+            }
+        }
+    }
+
+    /** 握手/配对完成后冲刷待发队列（事件驱动）。 */
+    private fun flushPending() {
+        val entries: List<PendingNotif> = synchronized(pendingNotifications) {
+            expirePendingLocked(android.os.SystemClock.elapsedRealtime())
+            val list = pendingNotifications.values.toList()
+            pendingNotifications.clear()
+            pendingBytes = 0
+            list
+        }
+        if (entries.isEmpty()) return
+        val targets = sessionsSnapshot().filter { it.visibleReady() && it.paired }
+        if (targets.isEmpty()) {
+            // 仍无目标：原样放回（刷新时间戳由下一次入队/冲刷处理）
+            synchronized(pendingNotifications) {
+                entries.forEach {
+                    pendingNotifications[it.key] = it
+                    pendingBytes += it.sizeBytes
+                }
+            }
+            return
+        }
+        log("待发队列冲刷 ${entries.size} 条 → ${targets.size} 个目标")
+        entries.forEach { json -> targets.forEach { sendToSession(it, json.json) } }
     }
 
     private fun sendToSession(session: Session, json: String) {
@@ -812,7 +945,10 @@ class BleRelayManager private constructor(context: Context) {
             false
         }
         if (ok) {
-            handler.postDelayed({ peripheralSendNext(session) }, PERIPHERAL_NOTIFY_DELAY_MS)
+            // 由 onNotificationSent 回调推进下一片；仅在本片待确认期间挂 1s 兜底
+            session.peripheralAwaitingSent = true
+            handler.removeCallbacks(session.peripheralSentFallbackRunnable)
+            handler.postDelayed(session.peripheralSentFallbackRunnable, PERIPHERAL_SENT_FALLBACK_MS)
         } else {
             synchronized(session) {
                 session.peripheralQueue.clear()
@@ -826,9 +962,13 @@ class BleRelayManager private constructor(context: Context) {
         synchronized(session) {
             val gatt = session.gatt
             val char = session.charFromCentral
+            handler.removeCallbacks(session.writeTimeoutRunnable)
             if (gatt == null || char == null || !session.connected) {
+                session.inflightChunk = null
+                session.writeAwaitingCallback = false
                 session.sendQueue.clear(); session.writing = false; return
             }
+            if (session.writeAwaitingCallback) return
             if (session.sendQueue.isEmpty()) {
                 session.writing = false
                 if (session.disconnectAfterCentralWrite) {
@@ -838,13 +978,55 @@ class BleRelayManager private constructor(context: Context) {
                 return
             }
             session.writing = true
-            val chunk = session.sendQueue.removeFirst()
-            char.value = chunk
+            // in-flight 分片：仅在 onCharacteristicWrite(GATT_SUCCESS) 后出队
+            session.inflightChunk = session.sendQueue.removeFirst()
+            session.writeAwaitingCallback = true
+            char.value = session.inflightChunk
             char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            handler.postDelayed(session.writeTimeoutRunnable, CENTRAL_WRITE_TIMEOUT_MS)
             if (!gatt.writeCharacteristic(char)) {
-                logGeneral("写特征值失败")
-                session.writing = false
+                logGeneral("写特征值发起失败")
+                handleCentralWriteFailure(session)
             }
+        }
+    }
+
+    private fun onCentralWriteTimedOut(session: Session) {
+        handler.post {
+            synchronized(session) {
+                if (!session.writeAwaitingCallback) return@post
+                logGeneral("中心写入超时")
+                handleCentralWriteFailureLocked(session)
+            }
+        }
+    }
+
+    private fun handleCentralWriteFailure(session: Session) {
+        // 已在 session 锁内调用
+        handleCentralWriteFailureLocked(session)
+    }
+
+    private fun handleCentralWriteFailureLocked(session: Session) {
+        handler.removeCallbacks(session.writeTimeoutRunnable)
+        session.writeAwaitingCallback = false
+        val inflight = session.inflightChunk
+        if (inflight == null) {
+            writeNext(session)
+            return
+        }
+        if (session.writeRetryCount < CENTRAL_WRITE_RETRY_DELAYS.size) {
+            val delay = CENTRAL_WRITE_RETRY_DELAYS[session.writeRetryCount]
+            session.writeRetryCount++
+            // 失败分片放回队首，按退避重试
+            session.sendQueue.addFirst(inflight)
+            session.inflightChunk = null
+            handler.postDelayed({ writeNext(session) }, delay)
+        } else {
+            // 超过重试上限：丢弃该分片，继续后续传输（避免队列永久卡死）
+            session.inflightChunk = null
+            session.writeRetryCount = 0
+            logGeneral("中心写入重试超限，丢弃当前分片")
+            writeNext(session)
         }
     }
 
@@ -961,6 +1143,7 @@ class BleRelayManager private constructor(context: Context) {
                 val session = created ?: return
                 handler.removeCallbacks(session.handshakeTimeoutRunnable)
                 handler.postDelayed(session.handshakeTimeoutRunnable, HANDSHAKE_TIMEOUT_MS)
+                scheduleHeartbeat()
                 notifyState()
                 log("外设：中心已连接 ${device.name ?: address}")
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -975,6 +1158,16 @@ class BleRelayManager private constructor(context: Context) {
         override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
             sessionByAddress(device.address ?: return)?.mtu = mtu
             log("外设：MTU=$mtu")
+        }
+
+        override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+            // 外设→中心：notify 实际发送完成后推进下一片，替代固定延时轮询
+            val session = sessionByAddress(device.address ?: return) ?: return
+            handler.removeCallbacks(session.peripheralSentFallbackRunnable)
+            if (session.peripheralAwaitingSent) {
+                session.peripheralAwaitingSent = false
+                peripheralSendNext(session)
+            }
         }
 
         override fun onCharacteristicWriteRequest(
@@ -1113,6 +1306,7 @@ class BleRelayManager private constructor(context: Context) {
                 session.connected = true
                 session.applicationReady = false
                 session.mtu = 23
+                scheduleHeartbeat()
                 handler.removeCallbacks(session.handshakeTimeoutRunnable)
                 handler.postDelayed(session.handshakeTimeoutRunnable, HANDSHAKE_TIMEOUT_MS)
                 notifyState()
@@ -1184,7 +1378,20 @@ class BleRelayManager private constructor(context: Context) {
         override fun onCharacteristicWrite(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) {
             val session = sessionByGatt(gatt) ?: return
             if (characteristic.uuid == Constants.CHAR_FROM_CENTRAL) {
-                writeNext(session)
+                handler.removeCallbacks(session.writeTimeoutRunnable)
+                synchronized(session) {
+                    if (!session.writeAwaitingCallback) return
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        // 仅成功后出队 in-flight 分片
+                        session.inflightChunk = null
+                        session.writeRetryCount = 0
+                        session.writeAwaitingCallback = false
+                        writeNext(session)
+                    } else {
+                        logGeneral("中心写入失败 status=$status")
+                        handleCentralWriteFailureLocked(session)
+                    }
+                }
             }
         }
 
@@ -1321,6 +1528,7 @@ class BleRelayManager private constructor(context: Context) {
                     log("握手：远端 ${session.remoteName.ifBlank { "未知" }} ${session.remoteAndroid} 电量 ${session.remoteBattery}%")
                     if (session.paired) {
                         sendToSession(session, infoJson(session).put("type", "pair_accept").toString())
+                        flushPending()
                     }
                 }
                 "status" -> {
@@ -1342,6 +1550,7 @@ class BleRelayManager private constructor(context: Context) {
                     completePairingIfReady(session)
                     notifyState()
                     log("对方已确认配对")
+                    flushPending()
                 }
                 "pair_reject" -> {
                     logGeneral("对方已拒绝配对")
@@ -1394,7 +1603,7 @@ class BleRelayManager private constructor(context: Context) {
                 }
                 else -> {
                     if (!session.paired) {
-                        logGeneral("配对未完成，忽略远程通知")
+                        log("配对未完成，忽略远程通知")
                         return
                     }
                     val key = obj.optString("key", "")
@@ -1452,6 +1661,7 @@ class BleRelayManager private constructor(context: Context) {
         session.pairingRequired = false
         notifyState()
         log("双方已确认，配对完成")
+        flushPending()
     }
 
     // ================= 本地通知渲染 =================

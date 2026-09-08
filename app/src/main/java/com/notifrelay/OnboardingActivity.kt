@@ -93,6 +93,7 @@ class OnboardingActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshVersion++
+        RecentsController.applyFromSettings(this)
     }
 
     private fun goToMain() {

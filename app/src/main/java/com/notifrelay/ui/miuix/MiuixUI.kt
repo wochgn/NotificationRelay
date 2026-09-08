@@ -147,6 +147,7 @@ import com.notifrelay.EventLog
 import com.notifrelay.ForegroundServiceController
 import com.notifrelay.PeerState
 import com.notifrelay.R
+import com.notifrelay.RecentsController
 import com.notifrelay.RelayState
 import com.notifrelay.SavedDevice
 import com.notifrelay.SettingsRepository
@@ -534,6 +535,7 @@ private fun MiuixAppContent(
                 )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
                 MiuixStatusDetailPage(
+                    visible = showStatusPage.value,
                     onBack = { showStatusPage.value = false },
                     modifier = Modifier
                         .fillMaxSize()
@@ -678,6 +680,7 @@ private fun MiuixAppContent(
             )
             // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
             MiuixStatusDetailPage(
+                visible = showStatusPage.value,
                 onBack = { showStatusPage.value = false },
                 modifier = Modifier
                     .fillMaxSize()
@@ -897,6 +900,7 @@ private fun MiuixAppContent(
                 )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
                 MiuixStatusDetailPage(
+                    visible = showStatusPage.value,
                     onBack = { showStatusPage.value = false },
                     modifier = Modifier
                         .fillMaxSize()
@@ -1430,6 +1434,12 @@ private fun MiuixDevicesScreen(
         var registered = false
         val stateListener: (RelayState) -> Unit = { state ->
             handler.post {
+                // 事件驱动同步：连接状态变化时把会话内最新设备名写入已配对列表
+                state.peers.forEach { p ->
+                    if (p.deviceId.isNotBlank() && p.name.isNotBlank()) {
+                        repo.updateDeviceName(p.deviceId, p.name)
+                    }
+                }
                 val justDisconnected = wasConnected && !state.connected
                 val userDisconnect = manager.consumeUserDisconnectEvent()
                 wasConnected = state.connected
@@ -1483,19 +1493,21 @@ private fun MiuixDevicesScreen(
         }
     }
 
-    // App 处于前台时实时刷新工作状态与远端设备名称（对方改名后即时同步）
-    LaunchedEffect(lifecycleOwner) {
-        while (true) {
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                manager.currentState().peers.forEach { p ->
-                    if (p.deviceId.isNotBlank() && p.name.isNotBlank()) {
-                        repo.updateDeviceName(p.deviceId, p.name)
-                    }
-                }
+    // 低功耗：不再 500ms 轮询。蓝牙开关走系统广播、通知权限在 ON_RESUME 检查一次，
+    // BLE/设备状态由 observeState 事件驱动，设置项由 Compose 状态回调刷新。
+    val btReceiver = remember {
+        object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: android.content.Intent?) {
                 refresh++
             }
-            delay(500)
         }
+    }
+    DisposableEffect(context) {
+        context.registerReceiver(
+            btReceiver,
+            android.content.IntentFilter(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
+        )
+        onDispose { context.unregisterReceiver(btReceiver) }
     }
 
     @Suppress("UNUSED_EXPRESSION") refresh
@@ -1794,21 +1806,27 @@ private fun MiuixStatusLine(label: String, enabled: Boolean) {
  * 返回按钮置于顶栏，48dp 触控区居中 24dp 图标，图标左缘 = 12dp，与下方卡片左缘对齐。
  */
 @Composable
-private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun MiuixStatusDetailPage(visible: Boolean, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     val manager = remember { BleRelayManager.get(context) }
     var refresh by remember { mutableIntStateOf(0) }
-    DisposableEffect(manager) {
+    // 仅页面可见时注册监听（事件驱动）；蓝牙开关走系统广播；权限在 Activity ON_RESUME 刷新
+    DisposableEffect(manager, visible) {
+        if (!visible) return@DisposableEffect onDispose { }
         val listener: (RelayState) -> Unit = { refresh++ }
         manager.observeState(listener)
-        onDispose { manager.removeState(listener) }
-    }
-    // 前台实时刷新（与首页工作状态卡一致）
-    LaunchedEffect(Unit) {
-        while (true) {
-            refresh++
-            delay(500)
+        refresh++
+        val btReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: android.content.Intent?) { refresh++ }
+        }
+        context.registerReceiver(
+            btReceiver,
+            android.content.IntentFilter(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
+        )
+        onDispose {
+            manager.removeState(listener)
+            context.unregisterReceiver(btReceiver)
         }
     }
     val bluetoothEnabled = remember(refresh) {
@@ -1973,16 +1991,13 @@ private fun MiuixDeviceDetailPage(
     val repo = remember { SettingsRepository.get(context) }
     val manager = remember { BleRelayManager.get(context) }
     var refresh by remember { mutableIntStateOf(0) }
-    DisposableEffect(manager) {
+    // 仅页面可见时注册监听（事件驱动），退出立即注销
+    DisposableEffect(manager, visible) {
+        if (!visible) return@DisposableEffect onDispose { }
         val listener: (RelayState) -> Unit = { refresh++ }
         manager.observeState(listener)
+        refresh++
         onDispose { manager.removeState(listener) }
-    }
-    LaunchedEffect(Unit) {
-        while (true) {
-            refresh++
-            delay(500)
-        }
     }
     val peer = remember(refresh, peerId) {
         manager.currentState().peers.firstOrNull { it.deviceId == peerId }
@@ -2707,6 +2722,16 @@ private fun MiuixSettingsScreen(
                     ForegroundServiceController.stop(context)
                     toast(context, "常驻后台已关闭")
                 }
+            }
+            var hideRecents by remember { mutableStateOf(repo.hideFromRecents) }
+            MiuixSwitchPref(
+                "隐藏后台卡片",
+                "开启后不在最近任务中显示本应用，桌面图标与后台通知流转不受影响",
+                hideRecents
+            ) {
+                hideRecents = it
+                repo.hideFromRecents = it
+                RecentsController.apply(context, it)
             }
         }
 
