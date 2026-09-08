@@ -2374,16 +2374,15 @@ private fun buildMiuixRows(
     val discoveredById = discovery.devices.filter { it.deviceId.isNotBlank() }.associateBy { it.deviceId }
     val savedIds = saved.map { it.deviceId }.toSet()
     return if (!nearby) {
-        saved.map { item ->
+        // 已连接设备已在"已连接设备"类别展示，这里只保留未连接的已配对设备
+        saved.filter { it.deviceId !in connectedKeys }.map { item ->
             val scan = discoveredById[item.deviceId]
-            val connected = item.deviceId in connectedKeys
             MiuixDeviceRowUi(
                 item.deviceId,
                 scan?.address.orEmpty(),
                 item.name.ifBlank { scan?.address.orEmpty() },
-                if (connected || scan != null) item.android.ifBlank { scan?.address.orEmpty() }
-                else listOf(item.android, "点击自动查找并连接").filter(String::isNotBlank).joinToString(" · "),
-                connected
+                listOf(item.android, "点击自动查找并连接").filter(String::isNotBlank).joinToString(" · "),
+                false
             )
         }
     } else {
