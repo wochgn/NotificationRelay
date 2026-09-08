@@ -1,12 +1,12 @@
-# 通知流转（正式版）
+# 通知流转（NotificationRelay）
 
 在两台 Android 手机之间，通过 BLE 把「A 收到的通知」流转到「B 弹出」，反向亦然。
-UI 遵循 Material Design 3（含动态取色）。
+UI 遵循 Material Design 3 及 Miuix。
 
 ## 功能
 
 - **BLE 双向流转**：两端自动协商中心/外设；新设备需在双方确认配对，已保存设备可自动重连
-- **通知标题带远端设备名**：`<远端设备名> | <应用名> | <通知标题>`，设备名默认取系统设备名、可在设置中修改
+- **通知标题带远端设备名**：` <应用名> | <远端设备名> `，设备名默认取系统设备名、可在设置中修改
 - **远端应用图标**：压缩并缓存通知来源应用图标，在接收端通知中显示；状态栏小图标仍使用本应用的单色图标
 - **同步清除通知**：本机通知从通知栏移除后，远端对应的流转通知也会一并清除
 - **按应用选择是否转发**：应用页列出已安装应用，可勾选；配合「仅转发选中」开关实现白名单
@@ -20,7 +20,7 @@ UI 遵循 Material Design 3（含动态取色）。
 
 | 项 | 选型 |
 |---|---|
-| 语言 / UI | Kotlin + Jetpack Compose + Material 3（动态取色） |
+| 语言 / UI | Kotlin + Jetpack Compose + Material 3 + Miuix |
 | BLE | 系统 `android.bluetooth.le`，无三方库 |
 | 通知读取 | `NotificationListenerService` |
 | 保活 | 前台服务（`foregroundServiceType=connectedDevice`） |
@@ -30,7 +30,7 @@ UI 遵循 Material Design 3（含动态取色）。
 ## 环境要求
 
 - Android Studio（自带 JDK 17+）
-- 两台测试机：**Android 12 (ColorOS)** 与 **Android 16 (HyperOS)**
+- 测试设备机：**Android 12 (ColorOS)** 与 **Android 16 (HyperOS)(包含HyperOS for Pad)**
 - 首次同步 Gradle 需联网
 
 ## 编译安装
@@ -49,7 +49,7 @@ UI 遵循 Material Design 3（含动态取色）。
 | 应用 | 可选：开启「仅转发选中」，勾选要转发的应用 |
 | 设置 | 可选：改设备名、开「常驻后台」或配置验证码实时通知 |
 
-连接成功后，任意一台收到通知，另一台会弹出 `<设备名> | <应用> | <标题>` 的通知。
+连接成功后，任意一台收到通知，另一台会弹出 `<应用> | <设备名>` 的通知。
 
 > 配对确认是应用内的双向信任确认，不会创建系统蓝牙绑定。双方均确认后才会记住设备，后续发现时自动协商角色并重连。
 
