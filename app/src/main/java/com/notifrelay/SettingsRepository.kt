@@ -187,6 +187,16 @@ class SettingsRepository private constructor(context: Context) {
         }
     }
 
+    // 远端设备名实时同步：仅更新名称，保持列表顺序不变
+    fun updateDeviceName(deviceId: String, name: String) {
+        if (deviceId.isBlank() || name.isBlank()) return
+        val list = savedDevices().toMutableList()
+        val idx = list.indexOfFirst { it.deviceId == deviceId }
+        if (idx < 0 || list[idx].name == name) return
+        list[idx] = list[idx].copy(name = name)
+        prefs.edit().putString(KEY_SAVED_DEVICES, toJsonArray(list).toString()).apply()
+    }
+
     fun setDeviceTypeOverride(deviceId: String, type: String?) {
         val obj = try {
             JSONObject(prefs.getString(KEY_DEVICE_TYPE_OVERRIDES, null) ?: "{}")

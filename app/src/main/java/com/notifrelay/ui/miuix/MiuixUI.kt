@@ -3,6 +3,7 @@ package com.notifrelay.ui.miuix
 import android.bluetooth.BluetoothManager
 import android.app.Activity
 import android.content.Context
+import android.os.Build
 import android.content.Intent
 import android.graphics.drawable.Drawable
 import android.os.Handler
@@ -557,6 +558,7 @@ private fun MiuixAppContent(
                     peerId = devicePagePeerId,
                     peerName = devicePagePeerName,
                     address = devicePageAddress,
+                    visible = showDevicePage.value,
                     onBack = { showDevicePage.value = false },
                     onDeleteRequest = { openDeleteDialog(it) },
                     modifier = Modifier
@@ -677,6 +679,7 @@ private fun MiuixAppContent(
                         peerId = devicePagePeerId,
                         peerName = devicePagePeerName,
                         address = devicePageAddress,
+                        visible = showDevicePage.value,
                         onBack = { showDevicePage.value = false },
                         onDeleteRequest = { openDeleteDialog(it) },
                         modifier = Modifier
@@ -890,6 +893,7 @@ private fun MiuixAppContent(
                     peerId = devicePagePeerId,
                     peerName = devicePagePeerName,
                     address = devicePageAddress,
+                    visible = showDevicePage.value,
                     onBack = { showDevicePage.value = false },
                     onDeleteRequest = { openDeleteDialog(it) },
                     modifier = Modifier
@@ -1453,10 +1457,17 @@ private fun MiuixDevicesScreen(
         }
     }
 
-    // App 处于前台时实时刷新工作状态（蓝牙/通知监听/常驻后台随时可能变化）
+    // App 处于前台时实时刷新工作状态与远端设备名称（对方改名后即时同步）
     LaunchedEffect(lifecycleOwner) {
         while (true) {
-            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) refresh++
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                manager.currentState().peers.forEach { p ->
+                    if (p.deviceId.isNotBlank() && p.name.isNotBlank()) {
+                        repo.updateDeviceName(p.deviceId, p.name)
+                    }
+                }
+                refresh++
+            }
             delay(500)
         }
     }
@@ -1634,6 +1645,9 @@ private fun MiuixDevicesScreen(
 /** 工作状态卡（KernelSU 绿色样式）：点击进入二级页查看蓝牙/通知监听/常驻后台明细。 */
 @Composable
 private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val repo = remember { SettingsRepository.get(context) }
+    val currentDevice = repo.resolvedDeviceName()
     val dark = isSystemInDarkTheme()
     val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
     val unopened = buildList {
@@ -1677,6 +1691,12 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                     color = contentColor
                 )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "当前设备：$currentDevice",
+                    fontSize = 15.sp,
+                    color = contentColor.copy(alpha = 0.82f)
+                )
                 if (!allOn) {
                     // 未开启项描述，多项以顿号连接并自动换行
                     Spacer(Modifier.height(2.dp))
@@ -1693,6 +1713,7 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
                     .align(Alignment.BottomStart)
                     .padding(start = 16.dp, bottom = 12.dp),
                 fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
                 color = contentColor.copy(alpha = 0.82f)
             )
             Box(
@@ -1757,6 +1778,13 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
     }
     val foregroundEnabled = remember(refresh) { repo.foregroundEnabled }
+    val appVersion = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+        } catch (e: Exception) {
+            ""
+        }
+    }
 
     Column(
         modifier
@@ -1808,12 +1836,15 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
                 MiuixStatusLine("常驻后台", foregroundEnabled)
             }
         }
-        Text(
-            text = "以上三项前置条件全部开启后，通知转发功能才能在后台持续工作。",
-            modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 8.dp),
-            fontSize = MiuixTheme.textStyles.main.fontSize * 0.72f,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-        )
+        MiuixSectionTitle("设备信息")
+        MiuixCard {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                MiuixInfoRow("APP 版本", appVersion)
+                MiuixInfoRow("设备型号", Build.MODEL)
+                MiuixInfoRow("系统版本", Build.VERSION.INCREMENTAL)
+                MiuixInfoRow("安卓版本", DeviceInfo.androidVersion())
+            }
+        }
         Spacer(Modifier.navigationBarsPadding())
     }
 }
@@ -1847,7 +1878,7 @@ private fun MiuixSavedDeviceCard(
             Icon(
                 imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
                 contentDescription = null,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(29.dp),
                 tint = MiuixTheme.colorScheme.onSurfaceContainer
             )
             Spacer(Modifier.width(16.dp))
@@ -1879,6 +1910,7 @@ private fun MiuixDeviceDetailPage(
     peerId: String?,
     peerName: String,
     address: String,
+    visible: Boolean,
     onBack: () -> Unit,
     onDeleteRequest: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -1924,7 +1956,10 @@ private fun MiuixDeviceDetailPage(
         else -> displayName.contains("pad", ignoreCase = true)
     }
     var typeMenuExpanded by remember { mutableStateOf(false) }
-    var typeVersion by remember { mutableIntStateOf(0) }
+    // 每次进入二级页时选项恢复默认收起状态
+    LaunchedEffect(visible) {
+        if (visible) typeMenuExpanded = false
+    }
 
     Column(
         modifier
@@ -1940,7 +1975,8 @@ private fun MiuixDeviceDetailPage(
                     } while (event.changes.any { it.pressed })
                 }
             }
-            .statusBarsPadding()
+            .statusBarsPadding(),
+        verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         // 顶栏：仅返回按钮，与工作状态二级页一致
         Box(
@@ -1980,21 +2016,23 @@ private fun MiuixDeviceDetailPage(
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val pureColor = if (isSystemInDarkTheme()) Color.White else Color.Black
                     Icon(
                         imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
                         contentDescription = null,
-                        modifier = Modifier.size(22.dp),
-                        tint = MiuixTheme.colorScheme.primary
+                        modifier = Modifier.size(20.dp),
+                        tint = pureColor
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
                         text = "设备类型",
                         modifier = Modifier.weight(1f),
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        color = pureColor
                     )
                     Text(
                         text = if (isTablet) "平板" else "手机",
-                        color = MiuixTheme.colorScheme.primary
+                        color = pureColor
                     )
                     Icon(
                         imageVector = Icons.Rounded.ChevronRight,
@@ -2002,7 +2040,7 @@ private fun MiuixDeviceDetailPage(
                         modifier = Modifier
                             .size(20.dp)
                             .graphicsLayer { rotationZ = if (typeMenuExpanded) 90f else 0f },
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        tint = pureColor
                     )
                 }
                 AnimatedVisibility(
@@ -2015,25 +2053,21 @@ private fun MiuixDeviceDetailPage(
                     ) + fadeOut(tween(160))
                 ) {
                     Column {
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         DeviceTypeOption(
                             title = "手机",
                             icon = Icons.Rounded.Smartphone,
                             selected = !isTablet,
                             onClick = {
                                 peerId?.let { repo.setDeviceTypeOverride(it, "phone") }
-                                typeVersion++
                                 typeMenuExpanded = false
                             }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         DeviceTypeOption(
                             title = "平板",
                             icon = Icons.Rounded.Tablet,
                             selected = isTablet,
                             onClick = {
                                 peerId?.let { repo.setDeviceTypeOverride(it, "tablet") }
-                                typeVersion++
                                 typeMenuExpanded = false
                             }
                         )
@@ -2055,7 +2089,6 @@ private fun MiuixDeviceDetailPage(
                         if (peer.finding) manager.cancelFindRemote(peer.deviceId)
                         else manager.findRemoteDevice(peer.deviceId)
                     }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                     DeviceActionRow(
                         icon = Icons.Outlined.LinkOff,
                         text = "断开连接",
@@ -2063,7 +2096,6 @@ private fun MiuixDeviceDetailPage(
                     ) {
                         manager.disconnect(peer.deviceId)
                     }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 } else {
                     DeviceActionRow(
                         icon = Icons.Outlined.Link,
@@ -2073,7 +2105,6 @@ private fun MiuixDeviceDetailPage(
                         if (address.isNotBlank()) manager.connectTo(address)
                         else peerId?.let { manager.connectToSaved(it) }
                     }
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                 }
                 DeviceActionRow(
                     icon = Icons.Outlined.DeleteOutline,
@@ -2155,6 +2186,19 @@ private fun DeviceActionRow(
     }
 }
 
+/** 设备信息行：标签加粗在上，说明值在下（参考 KernelSU 首页信息卡排版）。 */
+@Composable
+private fun MiuixInfoRow(label: String, value: String) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(text = label, fontWeight = FontWeight.Medium)
+        Text(
+            text = value,
+            fontSize = MiuixTheme.textStyles.main.fontSize * 0.72f,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+        )
+    }
+}
+
 /** "附近可用设备"类别标题：右侧蓝色无底色"刷新"文字按钮，字号与类别文字一致，右缘与卡片内文字对齐。 */
 @Composable
 private fun MiuixNearbyHeader(scanning: Boolean, onRefresh: () -> Unit) {
@@ -2198,7 +2242,7 @@ private fun MiuixConnectedPeerCard(
             Icon(
                 imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
                 contentDescription = null,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(29.dp),
                 tint = Color.White
             )
             Spacer(Modifier.width(16.dp))
@@ -2250,7 +2294,13 @@ private fun MiuixDeviceRow(manager: BleRelayManager, row: MiuixDeviceRowUi, onLo
             },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(Modifier.weight(1f).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Icon(
+            imageVector = if (row.name.contains("pad", ignoreCase = true)) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
+            contentDescription = null,
+            modifier = Modifier.padding(start = 16.dp).size(29.dp),
+            tint = MiuixTheme.colorScheme.onSurfaceContainer
+        )
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp)) {
             Text(text = row.name, fontWeight = FontWeight.Medium)
             if (row.subtitle.isNotBlank()) Text(text = row.subtitle)
         }
