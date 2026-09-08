@@ -32,6 +32,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -49,6 +56,11 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuOpen
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Devices
@@ -63,12 +75,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -78,6 +90,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.WideNavigationRail
+import androidx.compose.material3.WideNavigationRailDefaults
+import androidx.compose.material3.WideNavigationRailItem
+import androidx.compose.material3.WideNavigationRailValue
+import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -89,6 +106,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -127,15 +145,16 @@ import com.notifrelay.SavedDevice
 import com.notifrelay.SettingsRepository
 import com.notifrelay.setUiStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
-private data class Destination(val route: String, val title: String, val icon: ImageVector)
+private data class Destination(val route: String, val title: String, val icon: ImageVector, val selectedIcon: ImageVector)
 
 private val destinations = listOf(
-    Destination("devices", "设备", Icons.Outlined.Devices),
-    Destination("apps", "应用", Icons.Outlined.Apps),
-    Destination("settings", "设置", Icons.Outlined.Settings)
+    Destination("devices", "设备", Icons.Outlined.Devices, Icons.Filled.Devices),
+    Destination("apps", "应用", Icons.Outlined.Apps, Icons.Filled.Apps),
+    Destination("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings)
 )
 
 private fun routeIndex(route: String?): Int =
@@ -270,36 +289,69 @@ fun RelayMainContent(
             }
         ) { padding -> pagerPages(padding) }
     } else {
-        // 平板/横屏/大屏：左侧导航栏（较默认更宽），内容区占满剩余空间
+        // 平板/横屏/大屏：KernelSU 风格可展开侧边栏，内容区占满剩余空间
         Row(Modifier.fillMaxSize()) {
-            AppNavigationRail(
-                currentRoute = route,
-                railWidth = if (widthSizeClass == WindowWidthSizeClass.Expanded) 112.dp else 96.dp
-            ) { navigateTo(it) }
+            AppNavigationRail(currentRoute = route) { navigateTo(it) }
             Scaffold(topBar = topBar, modifier = Modifier.weight(1f)) { padding -> pagerPages(padding) }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppNavigationRail(currentRoute: String, railWidth: androidx.compose.ui.unit.Dp, onSelect: (Destination) -> Unit) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxHeight().width(railWidth)
-    ) {
-        Column(
-            Modifier.fillMaxSize().padding(vertical = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
-        ) {
-            destinations.forEach { item ->
-                NavigationRailItem(
-                    selected = currentRoute == item.route,
-                    onClick = { onSelect(item) },
-                    icon = { Icon(item.icon, null) },
-                    label = { Text(item.title) }
+private fun AppNavigationRail(currentRoute: String, onSelect: (Destination) -> Unit) {
+    val context = LocalContext.current
+    val repo = remember { SettingsRepository.get(context) }
+    val railState = rememberWideNavigationRailState(
+        initialValue = if (repo.navigationRailExpanded) {
+            WideNavigationRailValue.Expanded
+        } else {
+            WideNavigationRailValue.Collapsed
+        }
+    )
+    val scope = rememberCoroutineScope()
+    val expanded = railState.targetValue == WideNavigationRailValue.Expanded
+    LaunchedEffect(railState.targetValue) {
+        repo.navigationRailExpanded = expanded
+    }
+    WideNavigationRail(
+        modifier = Modifier.fillMaxHeight(),
+        state = railState,
+        colors = WideNavigationRailDefaults.colors().copy(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        windowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout).only(
+            WindowInsetsSides.Start + WindowInsetsSides.Vertical
+        ),
+        header = {
+            IconButton(modifier = Modifier.padding(start = 24.dp), onClick = {
+                scope.launch {
+                    if (expanded) railState.collapse() else railState.expand()
+                }
+            }) {
+                Icon(
+                    if (expanded) Icons.AutoMirrored.Filled.MenuOpen else Icons.Filled.Menu,
+                    contentDescription = if (expanded) "收起侧边栏" else "展开侧边栏"
                 )
             }
+        }
+    ) {
+        destinations.forEach { item ->
+            WideNavigationRailItem(
+                railExpanded = expanded,
+                selected = currentRoute == item.route,
+                onClick = {
+                    if (currentRoute != item.route) onSelect(item)
+                },
+                icon = {
+                    Icon(
+                        if (currentRoute == item.route) item.selectedIcon else item.icon,
+                        contentDescription = item.title
+                    )
+                },
+                label = { Text(item.title) }
+            )
         }
     }
 }

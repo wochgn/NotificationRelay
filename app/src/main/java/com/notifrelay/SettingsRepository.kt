@@ -41,6 +41,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_SAVED_DEVICES = "saved_devices"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_DEVICE_TYPE_OVERRIDES = "device_type_overrides"
+        private const val KEY_NAV_RAIL_EXPANDED = "navigation_rail_expanded"
     }
 
     // 设备名：null 表示使用系统设备名
@@ -95,6 +96,11 @@ class SettingsRepository private constructor(context: Context) {
     var liquidGlassBarEnabled: Boolean
         get() = prefs.getBoolean(KEY_LIQUID_GLASS_BAR_ENABLED, true)
         set(v) = prefs.edit().putBoolean(KEY_LIQUID_GLASS_BAR_ENABLED, v).apply()
+
+    // 大屏设备侧边栏是否展开（miuix 与 MD3 侧边栏共用，默认收起）
+    var navigationRailExpanded: Boolean
+        get() = prefs.getBoolean(KEY_NAV_RAIL_EXPANDED, false)
+        set(v) = prefs.edit().putBoolean(KEY_NAV_RAIL_EXPANDED, v).apply()
 
     // 是否已完成首次启动引导
     var onboarded: Boolean

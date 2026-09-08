@@ -176,6 +176,8 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import top.yukonga.miuix.kmp.basic.NavigationRail
 import top.yukonga.miuix.kmp.basic.NavigationRailItem
+import top.yukonga.miuix.kmp.basic.NavigationRailValue
+import top.yukonga.miuix.kmp.basic.rememberNavigationRailState
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Switch
@@ -543,6 +545,13 @@ private fun MiuixAppContent(
                         }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                 )
+                // 设备详情页压暗层（覆盖主页面，位于二级页之下）
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                        .background(Color.Black)
+                )
                 // 已连接设备详情二级页：与工作状态二级页一致的转场
                 MiuixDeviceDetailPage(
                     peerId = devicePagePeerId,
@@ -553,8 +562,8 @@ private fun MiuixAppContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val pd = devicePageProgress.value
-                            translationX = size.width * (1f - pd)
+                            translationX = size.width * (1f - devicePageProgress.value)
+                            val pd = dialogProgress.value
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
                             renderEffect = if (pd > 0.01f) {
@@ -565,13 +574,6 @@ private fun MiuixAppContent(
                             }
                         }
                         .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
-                )
-                // 设备详情页压暗层
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
-                        .background(Color.Black)
                 )
                 // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
                 Box(
@@ -584,8 +586,17 @@ private fun MiuixAppContent(
         }
     } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
         Row(Modifier.fillMaxSize()) {
+            val railState = rememberNavigationRailState(
+                if (repo.navigationRailExpanded) NavigationRailValue.Expanded else NavigationRailValue.Collapsed
+            )
+            LaunchedEffect(railState.currentValue) {
+                repo.navigationRailExpanded = railState.isExpanded
+            }
             NavigationRail(
-                header = { Spacer(Modifier.height(24.dp)) }
+                state = railState,
+                color = MiuixTheme.colorScheme.surface,
+                expandContentDescription = "展开侧边栏",
+                collapseContentDescription = "收起侧边栏"
             ) {
                 miuixTabs.forEach { item ->
                     NavigationRailItem(
@@ -654,6 +665,13 @@ private fun MiuixAppContent(
                         }
                             .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
                     )
+                    // 设备详情页压暗层（覆盖主页面，位于二级页之下）
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                            .background(Color.Black)
+                    )
                     // 已连接设备详情二级页：与工作状态二级页一致的转场
                     MiuixDeviceDetailPage(
                         peerId = devicePagePeerId,
@@ -676,13 +694,6 @@ private fun MiuixAppContent(
                                 }
                             }
                             .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
-                    )
-                    // 设备详情页压暗层
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
-                            .background(Color.Black)
                     )
                     // 取消配对/删除确认弹窗（设备列表与设备详情页共用）
                     OverlayDialog(
@@ -1807,10 +1818,6 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
     }
 }
 
-/**
- * 已连接设备详情二级页：与工作状态二级页一致的转场与结构。
- * 内容：大标题为设备名；"设备类型指定"卡片（点击后选项从卡片处就地展开）；"操作"类别卡（查找/断开/取消配对）。
- */
 /** 已配对（未连接）设备卡片：排版对齐蓝色已连接卡片，点击进入设备详情二级页。 */
 @Composable
 private fun MiuixSavedDeviceCard(
@@ -1837,20 +1844,13 @@ private fun MiuixSavedDeviceCard(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .background(MiuixTheme.colorScheme.surfaceContainer, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceContainer
-                )
-            }
-            Spacer(Modifier.width(14.dp))
+            Icon(
+                imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
+                contentDescription = null,
+                modifier = Modifier.size(34.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceContainer
+            )
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = name,
@@ -2195,20 +2195,13 @@ private fun MiuixConnectedPeerCard(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .background(Color.White.copy(alpha = 0.18f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                    tint = Color.White
-                )
-            }
-            Spacer(Modifier.width(14.dp))
+            Icon(
+                imageVector = if (isTablet) Icons.Rounded.Tablet else Icons.Rounded.Smartphone,
+                contentDescription = null,
+                modifier = Modifier.size(34.dp),
+                tint = Color.White
+            )
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = peer.name.ifBlank { "未知设备" },
@@ -2654,18 +2647,32 @@ private fun MiuixSettingsScreen(
                 toast(context, if (it) "详细日志已开启" else "仅显示一般日志")
             }
         }
-        MiuixCard {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Text(text = "连接测试", fontWeight = FontWeight.Medium)
-                Text(text = "向所有已连接设备发送一条测试通知")
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
-                    top.yukonga.miuix.kmp.basic.Button(onClick = { sendMiuixTestNotification(context, manager, repo) }) {
-                        Text("发送测试通知")
-                    }
+        Card(
+            Modifier.padding(top = MiuixPageItemSpacing * 0.6f).padding(horizontal = 12.dp).fillMaxWidth(),
+            onClick = { sendMiuixTestNotification(context, manager, repo) },
+            showIndication = true
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(text = "连接测试", fontWeight = FontWeight.Medium)
+                    Text(
+                        text = "点击向所有已连接设备发送一条测试通知",
+                        fontSize = MiuixTheme.textStyles.main.fontSize * 0.72f,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
                 }
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
             }
         }
-        MiuixCard {
+        MiuixCard(modifier = Modifier.padding(top = MiuixPageItemSpacing * 0.6f)) {
             SelectionContainer {
                 Column(
                     Modifier.fillMaxWidth().height(240.dp)
