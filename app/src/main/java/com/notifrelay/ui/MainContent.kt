@@ -15,6 +15,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,7 +41,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Apps
@@ -93,7 +100,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -865,8 +876,24 @@ private fun SettingsScreen(scrollState: ScrollState) {
     }
     LaunchedEffect(logs.size) { logScroll.scrollTo(logScroll.maxValue) }
 
+    val focusManager = LocalFocusManager.current
+    var nameFieldBounds by remember { mutableStateOf<Rect?>(null) }
+    var settingsRootPos by remember { mutableStateOf(Offset.Zero) }
+    var showResetNameDialog by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = 8.dp),
+        Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { settingsRootPos = it.positionInWindow() }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                    val bounds = nameFieldBounds
+                    if (bounds == null || (settingsRootPos + down.position) !in bounds) {
+                        focusManager.clearFocus()
+                    }
+                }
+            }
+            .verticalScroll(scrollState).padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         RelayCard(container = MaterialTheme.colorScheme.surfaceContainer) {
@@ -878,25 +905,43 @@ private fun SettingsScreen(scrollState: ScrollState) {
                 label = { Text("设备名称") },
                 singleLine = true,
                 shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp).onFocusChanged { state ->
-                    if (!state.isFocused) deviceName = repo.resolvedDeviceName()
-                }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp)
+                    .onGloballyPositioned { nameFieldBounds = it.boundsInWindow() }
+                    .onFocusChanged { state ->
+                        if (!state.isFocused) deviceName = repo.resolvedDeviceName()
+                    }
             )
             Row(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = {
-                    repo.deviceName = null
-                    deviceName = DeviceInfo.systemName(context)
-                    toast(context, "已恢复为系统设备名")
-                }) { Text("恢复默认") }
+                TextButton(onClick = { showResetNameDialog = true }) { Text("恢复默认") }
                 Button(onClick = {
                     val value = deviceName.trim()
                     if (value.isBlank()) toast(context, "设备名不能为空")
                     else { repo.deviceName = value; deviceName = value; toast(context, "已保存设备名：$value") }
                 }) { Text("保存名称") }
             }
+        }
+        if (showResetNameDialog) {
+            AlertDialog(
+                onDismissRequest = { showResetNameDialog = false },
+                title = { Text("恢复默认设备名") },
+                text = { Text("确定要恢复为系统设备名吗？当前自定义名称将被清除。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showResetNameDialog = false
+                        repo.deviceName = null
+                        deviceName = DeviceInfo.systemName(context)
+                        toast(context, "已恢复为系统设备名")
+                    }) { Text("恢复默认") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showResetNameDialog = false }) { Text("取消") }
+                }
+            )
         }
         SectionLabel("后台管理")
         SettingSwitchCard(

@@ -95,7 +95,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
@@ -103,11 +106,15 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.graphics.shadow.Shadow as ComposeShadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -1230,7 +1237,7 @@ private fun MiuixDevicesScreen(
             deleteDialogExitProgress.snapTo(0f)
             deleteDialogExitProgress.animateTo(
                 1f,
-                tween(durationMillis = 520, easing = StatusPageEasing)
+                tween(durationMillis = 480, easing = StatusPageEasing)
             )
             showDeleteDialog = false
         }
@@ -1289,7 +1296,7 @@ private fun MiuixDevicesScreen(
             pairDialogExitProgress.snapTo(0f)
             pairDialogExitProgress.animateTo(
                 1f,
-                tween(durationMillis = 520, easing = StatusPageEasing)
+                tween(durationMillis = 480, easing = StatusPageEasing)
             )
             showPairDialog = false
         }
@@ -1920,32 +1927,52 @@ private fun MiuixSettingsScreen(
         }
     }
 
+    val focusManager = LocalFocusManager.current
+    var nameFieldBounds by remember { mutableStateOf<Rect?>(null) }
+    var settingsRootPos by remember { mutableStateOf(Offset.Zero) }
+    // 手指滑动或点击输入框以外区域时清除焦点（失焦后输入框自动恢复为当前生效的设备名）
+    DisposableEffect(focusManager) {
+        onDispose { }
+    }
+    val clearFocusOutsideField: (Offset) -> Unit = { downInWindow ->
+        val bounds = nameFieldBounds
+        if (bounds == null || downInWindow !in bounds) focusManager.clearFocus()
+    }
+
     Column(
         Modifier
             .fillMaxSize()
+            .onGloballyPositioned { settingsRootPos = it.positionInWindow() }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(pass = PointerEventPass.Initial)
+                    clearFocusOutsideField(settingsRootPos + down.position)
+                }
+            }
             .verticalScroll(scrollState)
             .padding(top = topContentInset),
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         MiuixPageTitle("设置", scrollProgress)
         MiuixSectionTitle("设备名称")
+        val focusManager = LocalFocusManager.current
+        var showResetNameDialog by remember { mutableStateOf(false) }
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 TextField(
                     value = deviceName,
                     onValueChange = { deviceName = it },
                     // 失去焦点后自动恢复为当前生效的设备名
-                    modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
-                        if (!state.isFocused) deviceName = repo.resolvedDeviceName()
-                    }
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { nameFieldBounds = it.boundsInWindow() }
+                        .onFocusChanged { state ->
+                            if (!state.isFocused) deviceName = repo.resolvedDeviceName()
+                        }
                 )
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     top.yukonga.miuix.kmp.basic.Button(
-                        onClick = {
-                            repo.deviceName = null
-                            deviceName = DeviceInfo.systemName(context)
-                            toast(context, "已恢复为系统设备名")
-                        },
+                        onClick = { showResetNameDialog = true },
                         modifier = Modifier.weight(1f)
                     ) { Text("恢复默认") }
                     top.yukonga.miuix.kmp.basic.Button(
@@ -1965,7 +1992,31 @@ private fun MiuixSettingsScreen(
         }
 
         MiuixSectionTitle("后台管理")
-        MiuixCard {
+        OverlayDialog(
+            show = showResetNameDialog,
+            title = "恢复默认设备名",
+            onDismissRequest = { showResetNameDialog = false },
+            enableWindowDim = false
+        ) {
+            Column {
+                Text("确定要恢复为系统设备名吗？当前自定义名称将被清除。")
+                Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(text = "取消", onClick = { showResetNameDialog = false }, modifier = Modifier.weight(1f))
+                    TextButton(
+                        text = "恢复默认",
+                        onClick = {
+                            showResetNameDialog = false
+                            repo.deviceName = null
+                            deviceName = DeviceInfo.systemName(context)
+                            toast(context, "已恢复为系统设备名")
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary()
+                    )
+                }
+            }
+        }
+         MiuixCard {
             MiuixSwitchPref(
                 "常驻后台", "保持连接并在状态栏显示各设备状态", foreground
             ) {
