@@ -159,6 +159,13 @@ class RelayForegroundService : Service() {
  */
 object ForegroundServiceController {
     fun start(context: Context) {
+        // BLUETOOTH_CONNECT 未授予时启动 connectedDevice 类型前台服务会直接崩溃；
+        // 此时跳过启动，状态卡会显示"蓝牙权限未开启"，授权后再次开启即可。
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.BLUETOOTH_CONNECT
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (!granted) return
         val intent = Intent(context, RelayForegroundService::class.java)
         ContextCompat.startForegroundService(context, intent)
     }

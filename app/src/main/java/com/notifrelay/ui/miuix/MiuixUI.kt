@@ -592,157 +592,178 @@ private fun MiuixAppContent(
             }
         }
     } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
-        Row(Modifier.fillMaxSize()) {
-            val railState = rememberNavigationRailState(
-                if (repo.navigationRailExpanded) NavigationRailValue.Expanded else NavigationRailValue.Collapsed
-            )
-            LaunchedEffect(railState.currentValue) {
-                repo.navigationRailExpanded = railState.isExpanded
-            }
-            NavigationRail(
-                state = railState,
-                color = MiuixTheme.colorScheme.surface,
-                expandContentDescription = "展开侧边栏",
-                collapseContentDescription = "收起侧边栏"
-            ) {
-                miuixTabs.forEach { item ->
-                    NavigationRailItem(
-                        selected = currentTab == item.key,
-                        onClick = { onTabChange(item.key) },
-                        icon = item.icon,
-                        label = item.label
-                    )
-                }
-            }
-            Scaffold(
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                modifier = Modifier.weight(1f)
-            ) { _ ->
-                Box(Modifier.fillMaxSize()) {
-                    // 主页面组：进入二级页时略微缩小并被渐进模糊覆盖
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
-                                scaleX = 1f - 0.06f * p
-                                scaleY = 1f - 0.06f * p
-                                renderEffect = if (p > 0.01f) {
-                                    val r = 10.dp.toPx() * p
-                                    BlurEffect(r, r, TileMode.Clamp)
-                                } else {
-                                    null
-                                }
-                            }
-                    ) {
-                        Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                            pageArea()
-                        }
-                    }
-                    // 顶栏直接消费 backdrop，避免额外图层破坏投影坐标。
-                    MiuixCollapsingTopBar(
-                        title = title,
-                        scrollProgress = scrollProgress,
-                        backdrop = backdrop,
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    )
-                    // 主页面压暗层
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = 0.4f * statusProgress.value }
-                            .background(Color.Black)
-                    )
-                    // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
-                    MiuixStatusDetailPage(
-                        onBack = { showStatusPage.value = false },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                            val pd = dialogProgress.value
-                            translationX = size.width * (1f - statusProgress.value)
-                            scaleX = 1f - 0.06f * pd
-                            scaleY = 1f - 0.06f * pd
-                            renderEffect = if (pd > 0.01f) {
-                                val r = 12.dp.toPx() * pd
+        // 大屏：侧边栏视为一级页面的一部分——二级页进入时侧边栏与内容一同被缩小、模糊、压暗，
+        // 二级页覆盖层铺满整个屏幕（含侧边栏）。
+        Box(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize()) {
+                // 侧边栏：与主页面一同参与缩小/模糊
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                            scaleX = 1f - 0.06f * p
+                            scaleY = 1f - 0.06f * p
+                            renderEffect = if (p > 0.01f) {
+                                val r = 10.dp.toPx() * p
                                 BlurEffect(r, r, TileMode.Clamp)
                             } else {
                                 null
                             }
                         }
-                            .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                ) {
+                    val railState = rememberNavigationRailState(
+                        if (repo.navigationRailExpanded) NavigationRailValue.Expanded else NavigationRailValue.Collapsed
                     )
-                    // 设备详情页压暗层（覆盖主页面，位于二级页之下）
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
-                            .background(Color.Black)
-                    )
-                    // 已连接设备详情二级页：与工作状态二级页一致的转场
-                    MiuixDeviceDetailPage(
-                        peerId = devicePagePeerId,
-                        peerName = devicePagePeerName,
-                        address = devicePageAddress,
-                        visible = showDevicePage.value,
-                        onBack = { showDevicePage.value = false },
-                        onDeleteRequest = { openDeleteDialog(it) },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                translationX = size.width * (1f - devicePageProgress.value)
-                                val pd = dialogProgress.value
-                                scaleX = 1f - 0.06f * pd
-                                scaleY = 1f - 0.06f * pd
-                                renderEffect = if (pd > 0.01f) {
-                                    val r = 12.dp.toPx() * pd
-                                    BlurEffect(r, r, TileMode.Clamp)
-                                } else {
-                                    null
-                                }
-                            }
-                            .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
-                    )
-                    // 取消配对/删除确认弹窗（设备列表与设备详情页共用）
-                    OverlayDialog(
-                        show = showDeleteDialog,
-                        title = deleteTitle,
-                        modifier = Modifier.graphicsLayer {
-                            translationY = (size.height + 48.dp.toPx()) * deleteDialogExitProgress.value
-                        },
-                        onDismissRequest = { dismissDeleteDialog() },
-                        onDismissFinished = {
-                            deleteDialogExiting = false
-                            dialogAnimationScope.launch { deleteDialogExitProgress.snapTo(0f) }
-                        },
-                        enableWindowDim = false
+                    LaunchedEffect(railState.currentValue) {
+                        repo.navigationRailExpanded = railState.isExpanded
+                    }
+                    NavigationRail(
+                        state = railState,
+                        color = MiuixTheme.colorScheme.surface,
+                        expandContentDescription = "展开侧边栏",
+                        collapseContentDescription = "收起侧边栏"
                     ) {
-                        Column {
-                            Text(deleteMessage)
-                            Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TextButton(text = "取消", onClick = { dismissDeleteDialog() }, modifier = Modifier.weight(1f))
-                                TextButton(
-                                    text = "取消配对",
-                                    onClick = {
-                                        dismissDeleteDialog {
-                                            deleteId?.let { manager.unpair(it) }
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.textButtonColorsPrimary()
-                                )
-                            }
+                        miuixTabs.forEach { item ->
+                            NavigationRailItem(
+                                selected = currentTab == item.key,
+                                onClick = { onTabChange(item.key) },
+                                icon = item.icon,
+                                label = item.label
+                            )
                         }
                     }
-                    // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = 0.35f * dialogProgress.value }
-                            .background(Color.Black)
-                    )
+                }
+                Scaffold(
+                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                    modifier = Modifier.weight(1f)
+                ) { _ ->
+                    Box(Modifier.fillMaxSize()) {
+                        // 主页面组：进入二级页时略微缩小并被渐进模糊覆盖
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .graphicsLayer {
+                                    val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                                    scaleX = 1f - 0.06f * p
+                                    scaleY = 1f - 0.06f * p
+                                    renderEffect = if (p > 0.01f) {
+                                        val r = 10.dp.toPx() * p
+                                        BlurEffect(r, r, TileMode.Clamp)
+                                    } else {
+                                        null
+                                    }
+                                }
+                        ) {
+                            Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                                pageArea()
+                            }
+                        }
+                        // 顶栏直接消费 backdrop，避免额外图层破坏投影坐标。
+                        MiuixCollapsingTopBar(
+                            title = title,
+                            scrollProgress = scrollProgress,
+                            backdrop = backdrop,
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        )
+                    }
                 }
             }
+            // 主页面压暗层（覆盖侧边栏与内容）
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.4f * statusProgress.value }
+                    .background(Color.Black)
+            )
+            // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
+            MiuixStatusDetailPage(
+                onBack = { showStatusPage.value = false },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val pd = dialogProgress.value
+                        translationX = size.width * (1f - statusProgress.value)
+                        scaleX = 1f - 0.06f * pd
+                        scaleY = 1f - 0.06f * pd
+                        renderEffect = if (pd > 0.01f) {
+                            val r = 12.dp.toPx() * pd
+                            BlurEffect(r, r, TileMode.Clamp)
+                        } else {
+                            null
+                        }
+                    }
+                    .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+            )
+            // 设备详情页压暗层（覆盖侧边栏与主页面，位于二级页之下）
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                    .background(Color.Black)
+            )
+            // 已连接设备详情二级页：与工作状态二级页一致的转场
+            MiuixDeviceDetailPage(
+                peerId = devicePagePeerId,
+                peerName = devicePagePeerName,
+                address = devicePageAddress,
+                visible = showDevicePage.value,
+                onBack = { showDevicePage.value = false },
+                onDeleteRequest = { openDeleteDialog(it) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = size.width * (1f - devicePageProgress.value)
+                        val pd = dialogProgress.value
+                        scaleX = 1f - 0.06f * pd
+                        scaleY = 1f - 0.06f * pd
+                        renderEffect = if (pd > 0.01f) {
+                            val r = 12.dp.toPx() * pd
+                            BlurEffect(r, r, TileMode.Clamp)
+                        } else {
+                            null
+                        }
+                    }
+                    .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+            )
+            // 取消配对/删除确认弹窗（设备列表与设备详情页共用）
+            OverlayDialog(
+                show = showDeleteDialog,
+                title = deleteTitle,
+                modifier = Modifier.graphicsLayer {
+                    translationY = (size.height + 48.dp.toPx()) * deleteDialogExitProgress.value
+                },
+                onDismissRequest = { dismissDeleteDialog() },
+                onDismissFinished = {
+                    deleteDialogExiting = false
+                    dialogAnimationScope.launch { deleteDialogExitProgress.snapTo(0f) }
+                },
+                enableWindowDim = false
+            ) {
+                Column {
+                    Text(deleteMessage)
+                    Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(text = "取消", onClick = { dismissDeleteDialog() }, modifier = Modifier.weight(1f))
+                        TextButton(
+                            text = "取消配对",
+                            onClick = {
+                                dismissDeleteDialog {
+                                    deleteId?.let { manager.unpair(it) }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary()
+                        )
+                    }
+                }
+            }
+            // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.35f * dialogProgress.value }
+                    .background(Color.Black)
+            )
         }
     } else {
         // 关闭液态玻璃底栏的手机布局：贴底全宽标准导航栏，毛玻璃背景，图层位于内容上方
@@ -1595,9 +1616,12 @@ private fun MiuixDevicesScreen(
             MiuixWorkStatusCard(state, onClick = onOpenStatusPage)
         }
         // 已连接设备：每台一张蓝色卡片，置于工作状态卡下方，点击进入设备详情二级页；
-        // 卡片之间无类别标题时间距增大 60%
+        // 卡片之间无类别标题时间距增大 30%
+        if (state.peers.isNotEmpty()) {
+            item(key = "connected-title") { MiuixSectionTitle("已连接设备") }
+        }
         items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
-            Box(Modifier.padding(top = MiuixPageItemSpacing * 0.3f)) {
+            Box(Modifier.padding(top = if (state.peers.first() !== peer) MiuixPageItemSpacing * 0.3f else 0.dp)) {
             MiuixConnectedPeerCard(
                 peer = peer,
                 isTablet = run {
@@ -1836,8 +1860,7 @@ private fun MiuixStatusDetailPage(onBack: () -> Unit, modifier: Modifier = Modif
         }
         // 大标题与一级页面大标题位置一致（顶栏 40dp + 4dp 间距）
         Spacer(Modifier.height(4.dp))
-        MiuixPageTitle("工作状态", remember { mutableStateOf(0f) })
-        Spacer(Modifier.height(8.dp))
+        MiuixPageTitle("工作状态", remember { mutableStateOf(0f) }, lifted = true)
         MiuixCard {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 MiuixStatusLine("蓝牙", bluetoothEnabled)
@@ -1901,7 +1924,7 @@ private fun MiuixSavedDeviceCard(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = "未连接",
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
@@ -2020,8 +2043,7 @@ private fun MiuixDeviceDetailPage(
             }
         }
         Spacer(Modifier.height(4.dp))
-        MiuixPageTitle(displayName, remember { mutableStateOf(0f) })
-        Spacer(Modifier.height(8.dp))
+        MiuixPageTitle(displayName, remember { mutableStateOf(0f) }, lifted = true)
 
         // 设备类型指定：点击卡片后选项从卡片处就地展开
         MiuixSectionTitle("设备类型指定")
@@ -2207,11 +2229,11 @@ private fun DeviceActionRow(
 /** 设备信息行：标签加粗在上，说明值在下（参考 KernelSU 首页信息卡排版）。 */
 @Composable
 private fun MiuixInfoRow(label: String, value: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 9.2.dp)) {
         Text(text = label, fontWeight = FontWeight.Medium)
         Text(
             text = value,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
     }
@@ -2278,7 +2300,7 @@ private fun MiuixConnectedPeerCard(
                         peer.android.ifBlank { "版本未知" },
                         if (peer.battery >= 0) "电量 ${peer.battery}%" else "电量未知"
                     ).joinToString(" · "),
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     color = Color.White.copy(alpha = 0.78f)
                 )
             }
@@ -2320,13 +2342,12 @@ private fun MiuixDeviceRow(manager: BleRelayManager, row: MiuixDeviceRowUi, onLo
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp)) {
             Text(text = row.name, fontWeight = FontWeight.Medium)
-            if (row.subtitle.isNotBlank()) Text(text = row.subtitle)
+            if (row.subtitle.isNotBlank()) Text(
+                text = row.subtitle,
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
         }
-        Text(
-            text = if (row.connected) "已连接" else "连接",
-            modifier = Modifier.padding(end = 16.dp),
-            color = MiuixTheme.colorScheme.primary
-        )
     }
 }
 
@@ -2654,10 +2675,25 @@ private fun MiuixSettingsScreen(
             MiuixSwitchPref(
                 "常驻后台", "保持连接并在状态栏显示各设备状态", foreground
             ) {
-                foreground = it
-                repo.foregroundEnabled = it
-                if (it) ForegroundServiceController.start(context) else ForegroundServiceController.stop(context)
-                toast(context, if (it) "常驻后台已开启" else "常驻后台已关闭")
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    context, android.Manifest.permission.BLUETOOTH_CONNECT
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (it && granted) {
+                    foreground = true
+                    repo.foregroundEnabled = true
+                    ForegroundServiceController.start(context)
+                    toast(context, "常驻后台已开启")
+                } else if (it) {
+                    // 蓝牙权限未授予：无法启动前台服务，状态卡会提示"蓝牙权限未开启"
+                    foreground = false
+                    repo.foregroundEnabled = false
+                    toast(context, "蓝牙权限未开启，无法开启常驻后台")
+                } else {
+                    foreground = false
+                    repo.foregroundEnabled = false
+                    ForegroundServiceController.stop(context)
+                    toast(context, "常驻后台已关闭")
+                }
             }
         }
 
@@ -2734,7 +2770,7 @@ private fun MiuixSettingsScreen(
                     Text(text = "连接测试", fontWeight = FontWeight.Medium)
                     Text(
                         text = "点击向所有已连接设备发送一条测试通知",
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
