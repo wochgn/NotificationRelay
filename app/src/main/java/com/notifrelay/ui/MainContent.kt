@@ -1045,6 +1045,14 @@ private fun SettingsScreen(scrollState: ScrollState) {
             repo.refreshAsNewEnabled = it
             toast(context, if (it) "内容刷新将弹出新通知" else "内容刷新将原地更新通知")
         }
+        var syncRemove by remember { mutableStateOf(repo.syncRemoveEnabled) }
+        SettingSwitchCard(
+            "同步通知清除状态", "开启后，原机通知被清除时，已流转到本机的通知同步移除", syncRemove
+        ) {
+            syncRemove = it
+            repo.syncRemoveEnabled = it
+            toast(context, if (it) "清除状态将同步到本机" else "流转通知将保留，需手动清除")
+        }
         // 主题与颜色：MD3 / MIUIX 风格切换
         SectionLabel("主题与颜色")
         var uiStyle by remember { mutableStateOf(repo.uiStyle) }

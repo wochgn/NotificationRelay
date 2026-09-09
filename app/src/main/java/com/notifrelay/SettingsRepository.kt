@@ -34,6 +34,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_RELAY_ONGOING_ENABLED = "relay_ongoing_enabled"
         private const val KEY_DEDUPE_REPEAT_ENABLED = "dedupe_repeat_enabled"
         private const val KEY_REFRESH_AS_NEW_ENABLED = "refresh_as_new_enabled"
+private const val KEY_SYNC_REMOVE_ENABLED = "sync_remove_enabled"
         private const val KEY_VERBOSE_LOG_ENABLED = "verbose_log_enabled"
         private const val KEY_UI_STYLE = "ui_style"
         private const val KEY_LIQUID_GLASS_BAR_ENABLED = "liquid_glass_bar_enabled"
@@ -82,6 +83,11 @@ class SettingsRepository private constructor(context: Context) {
     var refreshAsNewEnabled: Boolean
         get() = prefs.getBoolean(KEY_REFRESH_AS_NEW_ENABLED, false)
         set(v) = prefs.edit().putBoolean(KEY_REFRESH_AS_NEW_ENABLED, v).apply()
+
+    // 同步通知清除状态（接收端开关）：原机通知被清除时，已流转到本机的通知同步移除，默认关闭
+    var syncRemoveEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SYNC_REMOVE_ENABLED, false)
+        set(v) = prefs.edit().putBoolean(KEY_SYNC_REMOVE_ENABLED, v).apply()
 
     // 是否在应用内显示详细诊断日志（关闭后仅显示错误/警告类一般日志）
     var verboseLogEnabled: Boolean

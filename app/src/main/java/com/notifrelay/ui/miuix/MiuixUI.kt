@@ -1628,12 +1628,12 @@ private fun MiuixDevicesScreen(
             MiuixWorkStatusCard(state, onClick = onOpenStatusPage)
         }
         // 已连接设备：每台一张蓝色卡片，置于工作状态卡下方，点击进入设备详情二级页；
-        // 卡片之间无类别标题时间距增大 30%
+        // 卡片之间无类别标题时间距增大 40%
         if (state.peers.isNotEmpty()) {
             item(key = "connected-title") { MiuixSectionTitle("已连接设备") }
         }
         items(state.peers, key = { "peer-${it.deviceId.ifBlank { it.address }}-${it.address}" }) { peer ->
-            Box(Modifier.padding(top = if (state.peers.first() !== peer) MiuixPageItemSpacing * 0.3f else 0.dp)) {
+            Box(Modifier.padding(top = if (state.peers.first() !== peer) MiuixPageItemSpacing * 0.42f else 0.dp)) {
             MiuixConnectedPeerCard(
                 peer = peer,
                 isTablet = run {
@@ -1653,7 +1653,7 @@ private fun MiuixDevicesScreen(
             item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
             savedRows.forEachIndexed { index, row ->
                 item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
-                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.3f else 0.dp)) {
+                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
                         MiuixSavedDeviceCard(
                             name = row.name.ifBlank { "未知设备" },
                             deviceId = row.id,
@@ -1696,7 +1696,7 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     val appVersion = remember {
         try {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            "${info.versionName}(${info.longVersionCode})"
+            "${info.versionName}"
         } catch (e: Exception) {
             ""
         }
@@ -1840,7 +1840,7 @@ private fun MiuixStatusDetailPage(visible: Boolean, onBack: () -> Unit, modifier
     val appVersion = remember {
         try {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            "${info.versionName}(${info.longVersionCode})"
+            "${info.versionName}"
         } catch (e: Exception) {
             ""
         }
@@ -1895,7 +1895,10 @@ private fun MiuixStatusDetailPage(visible: Boolean, onBack: () -> Unit, modifier
                 MiuixStatusLine("常驻后台", foregroundEnabled)
             }
         }
+        // 类别标题上下与卡片的间距对齐设备页（LazyColumn spacedBy + 标题内边距）
+        Spacer(Modifier.height(MiuixPageItemSpacing))
         MiuixSectionTitle("设备信息")
+        Spacer(Modifier.height(MiuixPageItemSpacing))
         MiuixCard {
             // 四项（APP 版本/设备型号/系统版本/安卓版本）各自为整体，整体间距 +20%
             Column(
@@ -2559,7 +2562,8 @@ private fun MiuixSettingsScreen(
     var otpLive by remember { mutableStateOf(repo.otpLiveEnabled) }
     var relayOngoing by remember { mutableStateOf(repo.relayOngoingEnabled) }
     var dedupeRepeat by remember { mutableStateOf(repo.dedupeRepeatEnabled) }
-    var refreshAsNew by remember { mutableStateOf(repo.refreshAsNewEnabled) }
+            var refreshAsNew by remember { mutableStateOf(repo.refreshAsNewEnabled) }
+            var syncRemove by remember { mutableStateOf(repo.syncRemoveEnabled) }
     var verboseLog by remember { mutableStateOf(repo.verboseLogEnabled) }
     var uiStyle by remember { mutableStateOf(repo.uiStyle) }
     val logs = remember { mutableStateListOf<String>() }
@@ -2765,6 +2769,13 @@ private fun MiuixSettingsScreen(
                 repo.refreshAsNewEnabled = it
                 toast(context, if (it) "内容刷新将弹出新通知" else "内容刷新将原地更新通知")
             }
+            MiuixSwitchPref(
+                "同步通知清除状态", "开启后，原机通知被清除时，已流转到本机的通知同步移除", syncRemove
+            ) {
+                syncRemove = it
+                repo.syncRemoveEnabled = it
+                toast(context, if (it) "清除状态将同步到本机" else "流转通知将保留，需手动清除")
+            }
         }
 
         MiuixSectionTitle("主题与颜色", modifier = Modifier.padding(top = 3.2.dp))
@@ -2796,7 +2807,7 @@ private fun MiuixSettingsScreen(
             }
         }
         Card(
-            Modifier.padding(top = MiuixPageItemSpacing * 0.3f).padding(horizontal = 12.dp).fillMaxWidth(),
+            Modifier.padding(top = MiuixPageItemSpacing * 0.42f).padding(horizontal = 12.dp).fillMaxWidth(),
             onClick = { sendMiuixTestNotification(context, manager, repo) },
             showIndication = true
         ) {
@@ -2820,7 +2831,7 @@ private fun MiuixSettingsScreen(
                 )
             }
         }
-        MiuixCard(modifier = Modifier.padding(top = MiuixPageItemSpacing * 0.3f)) {
+        MiuixCard(modifier = Modifier.padding(top = MiuixPageItemSpacing * 0.42f)) {
             SelectionContainer {
                 Column(
                     Modifier.fillMaxWidth().height(240.dp)

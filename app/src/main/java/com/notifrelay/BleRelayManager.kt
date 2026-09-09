@@ -79,6 +79,7 @@ private data class RemoteNotificationData(
     val id: Int,
     val device: String,
     val senderId: String,
+    val key: String,
     val pkg: String,
     val app: String,
     val title: String,
@@ -1573,9 +1574,26 @@ class BleRelayManager private constructor(context: Context) {
                     closeSession(session, "对方已取消配对")
                 }
                 "notif_remove" -> {
-                    // 流转通知不随原机通知消失而消失：忽略原机的移除事件，
-                    // 远端通知保留，由用户在本机自行清除。
-                    log("原机通知已清除，远端保留流转通知")
+                    // 「同步通知清除状态」（接收端开关）：原机通知被清除时，
+                    // 同步移除本机对应的流转通知（含同一 key 的多代通知）。
+                    if (!SettingsRepository.get(appContext).syncRemoveEnabled) {
+                        log("原机通知已清除，远端保留流转通知")
+                        return
+                    }
+                    val removedKey = obj.optString("key", "")
+                    if (removedKey.isBlank()) return
+                    val ids = synchronized(remoteNotifications) {
+                        remoteNotifications.values
+                            .filter { it.senderId == session.remoteDeviceId && it.key == removedKey }
+                            .map { it.id }
+                    }
+                    if (ids.isEmpty()) return
+                    val nm = appContext.getSystemService(NotificationManager::class.java)
+                    ids.forEach { id ->
+                        synchronized(remoteNotifications) { remoteNotifications.remove(id) }
+                        try { nm.cancel(id) } catch (_: Exception) {}
+                    }
+                    log("原机通知已清除，已同步移除流转通知 ${ids.size} 条")
                 }
                 "app_icon" -> {
                     if (!session.paired) return
@@ -1695,7 +1713,7 @@ class BleRelayManager private constructor(context: Context) {
             }
         }
         val id = if (key.isNotEmpty()) "$key#$generation".hashCode() else notifId++
-        val data = RemoteNotificationData(id, device, senderId, pkg, app, title, text, ongoing, otpCode)
+        val data = RemoteNotificationData(id, device, senderId, key, pkg, app, title, text, ongoing, otpCode)
         synchronized(remoteNotifications) { remoteNotifications[id] = data }
         renderLocalNotification(data, logPosted = true)
     }

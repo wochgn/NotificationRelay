@@ -40,8 +40,9 @@ android {
         applicationId = "com.notifrelay"
         minSdk = 31
         targetSdk = 35
-    versionCode = 2698
-    versionName = "1.9.1"
+        // 版本名格式：大版本号(重大更新/API变更).小版本号(功能增加/重大优化).小版本号(bug修复/普通优化).版本码
+        versionCode = 2699
+        versionName = "1.10.0.$versionCode"
     }
 
     buildTypes {
@@ -52,8 +53,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (releaseSigningConfigured) {
-                signingConfig = signingConfigs.getByName("release")
+            // 无 release 签名配置时忽略签名，回退 debug 签名以便本机覆盖安装
+            signingConfig = if (releaseSigningConfigured) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
         }
     }

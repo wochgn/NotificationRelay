@@ -112,11 +112,20 @@ class RelayListenerService : NotificationListenerService() {
     ) {
         if (sbn.packageName == packageName) return
         if ((sbn.notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return
-        if (!SettingsRepository.get(this).isAppEnabled(sbn.packageName)) return
+        val settings = SettingsRepository.get(this)
+        if (!settings.isAppEnabled(sbn.packageName)) return
+        // 与转发条件保持一致：未流转的常驻通知无需同步清除
+        if (!settings.relayOngoingEnabled && !sbn.isClearable) return
         if (sbn.key.isBlank()) return
 
-        // 流转通知不随原机通知消失而消失：不再向远端发送 notif_remove，
-        // 远端通知保留，由用户在本机自行清除。
-        EventLog.add("本机通知已清除 [${sbn.packageName}]（远端保留）")
+        // 「同步通知清除状态」：清除事件始终上报，由接收端按其本地开关决定是否同步移除。
+        // 无就绪目标时事件进入待发队列，并按 pkg|key 替换同通知的待发内容，等效撤销。
+        val json = JSONObject()
+            .put("type", "notif_remove")
+            .put("pkg", sbn.packageName)
+            .put("key", sbn.key)
+            .toString()
+        EventLog.add("本机通知已清除 [${sbn.packageName}]")
+        BleRelayManager.get(this).sendToRemote(json)
     }
 }
