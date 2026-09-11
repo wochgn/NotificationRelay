@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -41,8 +45,9 @@ android {
         minSdk = 31
         targetSdk = 35
         // 版本名格式：大版本号(重大更新/API变更).小版本号(功能增加/重大优化).小版本号(bug修复/普通优化).版本码
-        versionCode = 2699
-        versionName = "1.10.0.$versionCode"
+        // 版本码（VersionCode）为构建日期，格式 yymmdd
+        versionCode = SimpleDateFormat("yyMMdd", Locale.US).format(Date()).toInt()
+        versionName = "1.10.1.$versionCode"
     }
 
     buildTypes {

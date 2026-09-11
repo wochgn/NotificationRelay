@@ -2749,7 +2749,7 @@ private fun MiuixSettingsScreen(
                 toast(context, if (it) "验证码实时通知已开启" else "验证码实时通知已关闭，将使用普通通知")
             }
             MiuixSwitchPref(
-                "流转常驻通知", "关闭后不再转发常驻/不可清除类通知（如音乐播放、下载进度）", relayOngoing
+                "流转常驻通知", "关闭后不再转发常驻/不可清除、媒体播放类通知（如音乐播放、下载进度）", relayOngoing
             ) {
                 relayOngoing = it
                 repo.relayOngoingEnabled = it

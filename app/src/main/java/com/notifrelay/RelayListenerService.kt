@@ -1,6 +1,7 @@
 package com.notifrelay
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.service.notification.NotificationListenerService
@@ -60,6 +61,25 @@ class RelayListenerService : NotificationListenerService() {
         isConnectedToListener = false
     }
 
+    // 通知栏隐藏判定：解锁后通知栏内不显示的通知（渠道被关闭为「无」、应用被暂停）。
+    // 此类通知一律不转发；锁屏不显示（VISIBILITY_SECRET）的通知仍会正常出现在通知栏，照常转发。
+    private fun isHiddenFromShade(sbn: StatusBarNotification, rankingMap: RankingMap?): Boolean {
+        if (rankingMap == null) return false
+        val ranking = NotificationListenerService.Ranking()
+        if (!rankingMap.getRanking(sbn.key, ranking)) return false
+        if (ranking.isSuspended) return true
+        return ranking.channel?.importance == NotificationManager.IMPORTANCE_NONE
+    }
+
+    // 常驻类通知判定：不可清除 / 媒体播放（Android 13+ 媒体通知可滑动清除，仍属常驻类）。
+    // 「流转常驻通知」关闭时，这类通知不转发。
+    private fun isOngoingKind(sbn: StatusBarNotification): Boolean {
+        if (!sbn.isClearable) return true
+        val n = sbn.notification
+        return n.extras.containsKey(Notification.EXTRA_MEDIA_SESSION) ||
+            n.category == Notification.CATEGORY_TRANSPORT
+    }
+
     // 必须用带 RankingMap 的两参数版本。单参数版本已废弃，部分系统/ROM 不会回调它。
     override fun onNotificationPosted(sbn: StatusBarNotification, rankingMap: RankingMap) {
         // 回环防护：忽略本 App 自己发出的通知（那些正是从对端流转过来后本地弹出的），
@@ -84,9 +104,15 @@ class RelayListenerService : NotificationListenerService() {
             return
         }
 
+        // 通知栏内不显示的通知一律不转发（与「流转常驻通知」开关无关）
+        if (isHiddenFromShade(sbn, rankingMap)) {
+            EventLog.add("过滤通知[通知栏隐藏][${sbn.packageName}]")
+            return
+        }
+
         val settings = SettingsRepository.get(this)
-        // 常驻/不可清除通知（音乐播放、下载进度等）按用户开关决定是否流转
-        if (!settings.relayOngoingEnabled && !sbn.isClearable) {
+        // 常驻/不可清除、媒体类通知按用户开关决定是否流转
+        if (!settings.relayOngoingEnabled && isOngoingKind(sbn)) {
             EventLog.add("过滤通知[常驻未开启][${sbn.packageName}]")
             return
         }
@@ -114,8 +140,9 @@ class RelayListenerService : NotificationListenerService() {
         if ((sbn.notification.flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return
         val settings = SettingsRepository.get(this)
         if (!settings.isAppEnabled(sbn.packageName)) return
-        // 与转发条件保持一致：未流转的常驻通知无需同步清除
-        if (!settings.relayOngoingEnabled && !sbn.isClearable) return
+        // 与转发条件保持一致：未流转的隐藏/常驻通知无需同步清除
+        if (isHiddenFromShade(sbn, rankingMap)) return
+        if (!settings.relayOngoingEnabled && isOngoingKind(sbn)) return
         if (sbn.key.isBlank()) return
 
         // 「同步通知清除状态」：清除事件始终上报，由接收端按其本地开关决定是否同步移除。

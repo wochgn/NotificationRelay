@@ -1023,7 +1023,7 @@ private fun SettingsScreen(scrollState: ScrollState) {
         }
         var relayOngoing by remember { mutableStateOf(repo.relayOngoingEnabled) }
         SettingSwitchCard(
-            "流转常驻通知", "关闭后不再转发常驻/不可清除类通知（如音乐播放、下载进度）", relayOngoing
+            "流转常驻通知", "关闭后不再转发常驻/不可清除、媒体播放类通知（如音乐播放、下载进度）", relayOngoing
         ) {
             relayOngoing = it
             repo.relayOngoingEnabled = it
