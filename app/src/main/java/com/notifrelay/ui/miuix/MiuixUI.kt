@@ -45,6 +45,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +78,7 @@ import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Smartphone
@@ -106,6 +108,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -134,6 +137,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -322,6 +326,18 @@ private fun MiuixAppContent(
     }
     BackHandler(enabled = showDevicePage.value) { showDevicePage.value = false }
 
+    // —— 关于页二级页：与设备详情页同结构的转场 ——
+    val showAboutPage = remember { mutableStateOf(false) }
+    val aboutPageProgress = remember { Animatable(0f) }
+    val aboutScrollProgress = remember { mutableStateOf(0f) }
+    LaunchedEffect(showAboutPage.value) {
+        aboutPageProgress.animateTo(
+            if (showAboutPage.value) 1f else 0f,
+            tween(durationMillis = 550, easing = StatusPageEasing)
+        )
+    }
+    BackHandler(enabled = showAboutPage.value) { showAboutPage.value = false }
+
     // —— 应用页：列表状态提升到顶栏同级，供顶栏排序/搜索操作驱动 ——
     val appsListState = rememberLazyListState()
     val appsSearchFocus = remember { FocusRequester() }
@@ -472,6 +488,8 @@ private fun MiuixAppContent(
         Box(Modifier.fillMaxSize()) { pages() }
     }
 
+    // 顶栏操作图标：浅色模式纯黑、深色模式白色（在深色背景下保证可见）
+    val topBarActionIconTint = if (isSystemInDarkTheme()) Color.White else Color.Black
     // 应用页顶栏操作：搜索（搜索框被顶栏遮住时出现）+ 排序
     val appsTopBarActions: (@Composable RowScope.() -> Unit)? = if (currentTab == "apps") {
         {
@@ -481,7 +499,7 @@ private fun MiuixAppContent(
                     Icon(
                         imageVector = Icons.Rounded.Search,
                         contentDescription = "搜索",
-                        tint = Color.Black
+                        tint = topBarActionIconTint
                     )
                 }
             }
@@ -498,11 +516,25 @@ private fun MiuixAppContent(
                 Icon(
                     imageVector = Icons.Rounded.Sort,
                     contentDescription = "排序",
-                    tint = Color.Black
+                    tint = topBarActionIconTint
                 )
             }
         }
     } else null
+
+    // 设置页顶栏操作：关于
+    val settingsTopBarActions: (@Composable RowScope.() -> Unit)? = if (currentTab == "settings") {
+        {
+            IconButton(onClick = { showAboutPage.value = true }) {
+                Icon(
+                    imageVector = Icons.Rounded.Info,
+                    contentDescription = "关于",
+                    tint = topBarActionIconTint
+                )
+            }
+        }
+    } else null
+    val topBarActions = if (currentTab == "apps") appsTopBarActions else settingsTopBarActions
 
     // 开启液态玻璃底栏时：手机与 Pad 统一使用底部悬浮玻璃栏（Pad 不再显示侧边栏）
     val useGlassBar = glassBarEnabled
@@ -519,7 +551,7 @@ private fun MiuixAppContent(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                            val p = max(statusProgress.value, max(dialogProgress.value, max(devicePageProgress.value, aboutPageProgress.value)))
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
@@ -545,7 +577,7 @@ private fun MiuixAppContent(
                     title = title,
                     scrollProgress = scrollProgress,
                     backdrop = backdrop,
-                    actions = appsTopBarActions,
+                    actions = topBarActions,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
                 // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
@@ -571,7 +603,7 @@ private fun MiuixAppContent(
                         .height(64.dp)
                         .graphicsLayer {
                             translationY = (size.height + 24.dp.toPx()) *
-                                max(statusProgress.value, devicePageProgress.value)
+                                max(statusProgress.value, max(devicePageProgress.value, aboutPageProgress.value))
                         }
                 )
                 // 取消配对/删除确认弹窗（设备列表与设备详情页共用）
@@ -636,7 +668,7 @@ private fun MiuixAppContent(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                        .graphicsLayer { alpha = 0.4f * max(devicePageProgress.value, aboutPageProgress.value) }
                         .background(Color.Black)
                 )
                 // 已连接设备详情二级页：与工作状态二级页一致的转场
@@ -651,6 +683,27 @@ private fun MiuixAppContent(
                         .fillMaxSize()
                         .graphicsLayer {
                             translationX = size.width * (1f - devicePageProgress.value)
+                            val pd = dialogProgress.value
+                            scaleX = 1f - 0.06f * pd
+                            scaleY = 1f - 0.06f * pd
+                            renderEffect = if (pd > 0.01f) {
+                                val r = 12.dp.toPx() * pd
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
+                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                )
+                // 关于页：与设备详情页一致的转场
+                MiuixAboutPage(
+                    visible = showAboutPage.value,
+                    scrollProgress = aboutScrollProgress,
+                    onBack = { showAboutPage.value = false },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = size.width * (1f - aboutPageProgress.value)
                             val pd = dialogProgress.value
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
@@ -682,7 +735,7 @@ private fun MiuixAppContent(
                     Modifier
                         .fillMaxHeight()
                         .graphicsLayer {
-                            val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                            val p = max(statusProgress.value, max(dialogProgress.value, max(devicePageProgress.value, aboutPageProgress.value)))
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
@@ -725,7 +778,7 @@ private fun MiuixAppContent(
                             Modifier
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                                    val p = max(statusProgress.value, max(dialogProgress.value, max(devicePageProgress.value, aboutPageProgress.value)))
                                     scaleX = 1f - 0.06f * p
                                     scaleY = 1f - 0.06f * p
                                     renderEffect = if (p > 0.01f) {
@@ -781,7 +834,7 @@ private fun MiuixAppContent(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                    .graphicsLayer { alpha = 0.4f * max(devicePageProgress.value, aboutPageProgress.value) }
                     .background(Color.Black)
             )
             // 已连接设备详情二级页：与工作状态二级页一致的转场
@@ -856,7 +909,7 @@ private fun MiuixAppContent(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                            val p = max(statusProgress.value, max(dialogProgress.value, max(devicePageProgress.value, aboutPageProgress.value)))
                             scaleX = 1f - 0.06f * p
                             scaleY = 1f - 0.06f * p
                             renderEffect = if (p > 0.01f) {
@@ -881,7 +934,7 @@ private fun MiuixAppContent(
                     title = title,
                     scrollProgress = scrollProgress,
                     backdrop = backdrop,
-                    actions = appsTopBarActions,
+                    actions = topBarActions,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
                 // 表面不透明度与顶栏一致（0.78），保证未开启液态玻璃底栏时模糊观感相同；
@@ -899,7 +952,7 @@ private fun MiuixAppContent(
                         Modifier
                             .fillMaxWidth()
                             .graphicsLayer {
-                                val p = max(statusProgress.value, max(dialogProgress.value, devicePageProgress.value))
+                                val p = max(statusProgress.value, max(dialogProgress.value, max(devicePageProgress.value, aboutPageProgress.value)))
                                 renderEffect = if (p > 0.01f) {
                                     val r = 12.dp.toPx() * p
                                     BlurEffect(r, r, TileMode.Clamp)
@@ -1004,7 +1057,7 @@ private fun MiuixAppContent(
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = 0.4f * devicePageProgress.value }
+                        .graphicsLayer { alpha = 0.4f * max(devicePageProgress.value, aboutPageProgress.value) }
                         .background(Color.Black)
                 )
                 // 已连接设备详情二级页：与工作状态二级页一致的转场
@@ -1019,6 +1072,27 @@ private fun MiuixAppContent(
                         .fillMaxSize()
                         .graphicsLayer {
                             translationX = size.width * (1f - devicePageProgress.value)
+                            val pd = dialogProgress.value
+                            scaleX = 1f - 0.06f * pd
+                            scaleY = 1f - 0.06f * pd
+                            renderEffect = if (pd > 0.01f) {
+                                val r = 12.dp.toPx() * pd
+                                BlurEffect(r, r, TileMode.Clamp)
+                            } else {
+                                null
+                            }
+                        }
+                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                )
+                // 关于页：与设备详情页一致的转场
+                MiuixAboutPage(
+                    visible = showAboutPage.value,
+                    scrollProgress = aboutScrollProgress,
+                    onBack = { showAboutPage.value = false },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = size.width * (1f - aboutPageProgress.value)
                             val pd = dialogProgress.value
                             scaleX = 1f - 0.06f * pd
                             scaleY = 1f - 0.06f * pd
@@ -1825,10 +1899,15 @@ private fun MiuixWorkStatusCard(state: MiuixDeviceUi, onClick: () -> Unit) {
     }
     val dark = isSystemInDarkTheme()
     val allOn = state.bluetoothEnabled && state.listenerEnabled && state.foregroundEnabled
-    val unopened = buildList {
-        if (!state.bluetoothEnabled) add("蓝牙权限未开启")
-        if (!state.listenerEnabled) add("通知监听权限未开启")
-        if (!state.foregroundEnabled) add("常驻后台未开启")
+    // 三项均未开启时合并为一句提示（点按卡片可进入工作状态页查看详情），否则逐项列出
+    val unopened = if (!state.bluetoothEnabled && !state.listenerEnabled && !state.foregroundEnabled) {
+        listOf("所有权限均未开启，点按卡片查看详情")
+    } else {
+        buildList {
+            if (!state.bluetoothEnabled) add("蓝牙权限未开启")
+            if (!state.listenerEnabled) add("通知监听权限未开启")
+            if (!state.foregroundEnabled) add("常驻后台未开启")
+        }
     }
 
     val cardColor = if (allOn) {
@@ -2099,6 +2178,215 @@ private fun MiuixSavedDeviceCard(
     }
 }
 
+/**
+ * 关于页二级页：流光背景 + 应用图标/版本（滚动时缩小淡出），
+ * 下方为作者、链接与开源组件分组；进出转场与设备详情页一致。
+ */
+@Composable
+private fun MiuixAboutPage(
+    visible: Boolean,
+    scrollProgress: MutableState<Float>,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val dark = isSystemInDarkTheme()
+    val versionName = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
+        MiuixTopBarContentHeight
+    // 滚动进度：logo 缩放/淡出与流光透明度同步（滚动 1/3 视口高度内完成）
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val vp = listState.layoutInfo.viewportSize.height.toFloat()
+            if (vp <= 0f) 0f
+            else {
+                val scrolled = if (listState.firstVisibleItemIndex == 0) {
+                    listState.firstVisibleItemScrollOffset.toFloat()
+                } else vp
+                (scrolled / (vp / 3f)).coerceIn(0f, 1f)
+            }
+        }.collect { scrollProgress.value = it }
+    }
+    // 共享动画时钟：仅页面可见时运行（60fps 上限，避免高刷屏无意义开销）
+    val glowTime = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(visible) {
+        if (!visible) return@LaunchedEffect
+        val start = System.nanoTime()
+        var lastTick = -1L
+        while (true) {
+            withFrameNanos { now ->
+                val elapsed = now - start
+                val tick = elapsed / 16_666_667L
+                if (tick != lastTick) {
+                    lastTick = tick
+                    glowTime.floatValue = elapsed / 1_000_000_000f
+                }
+            }
+        }
+    }
+    val sp = scrollProgress.value
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .background(MiuixTheme.colorScheme.surface)
+            .statusBarsPadding()
+            .pointerInput(Unit) {
+                // 二级页覆盖时拦截触摸，避免透传到被覆盖的主页面
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { it.consume() }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+    ) {
+        FlowingGlowBackground(
+            modifier = Modifier.fillMaxSize(),
+            areaFraction = 0.5f,
+            glowAlpha = 1f - sp,
+            timeState = glowTime
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = topContentInset,
+                bottom = 96.dp
+            )
+        ) {
+            // ---- 应用图标 + 版本：占视口 50% 高度居中，滚动时轻微缩小淡出 ----
+            item(key = "about-hero") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillParentMaxHeight(0.5f)
+                        .graphicsLayer {
+                            val s = 1f - sp * 0.1f
+                            scaleX = s
+                            scaleY = s
+                            alpha = (1f - sp * 1.3f).coerceIn(0f, 1f)
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Image(
+                        painter = painterResource(
+                            if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
+                        ),
+                        contentDescription = "应用图标",
+                        modifier = Modifier.fillMaxWidth(0.38f).aspectRatio(1f)
+                    )
+                    Text(
+                        text = "NotificationRelay",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                    Text(
+                        text = versionName,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            }
+            item(key = "about-author") {
+                MiuixSectionTitle("作者")
+                MiuixCard {
+                    top.yukonga.miuix.kmp.preference.ArrowPreference(
+                        title = "wochgn",
+                        summary = "GitHub",
+                        onClick = { openUrl(context, "https://github.com/wochgn") }
+                    )
+                }
+            }
+            item(key = "about-links") {
+                MiuixSectionTitle("链接")
+                MiuixCard {
+                    top.yukonga.miuix.kmp.preference.ArrowPreference(
+                        title = "GitHub 仓库",
+                        summary = "查看源码与更新",
+                        onClick = { openUrl(context, "https://github.com/wochgn/NotificationRelay") }
+                    )
+                }
+            }
+            item(key = "about-opensource") {
+                MiuixSectionTitle("开源组件")
+                MiuixCard {
+                    MiuixAboutInfoRow("Miuix", "HyperOS 风格 Compose UI 组件库")
+                    MiuixAboutInfoRow("Kyant Backdrop", "毛玻璃与液态玻璃效果")
+                    MiuixAboutInfoRow("Kyant Shapes", "连续曲率（G2）圆角")
+                    MiuixAboutInfoRow("KernelSU", "设计参考", last = true)
+                }
+            }
+        }
+        // 顶栏：仅返回按钮（与设备详情页一致）
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(MiuixTopBarContentHeight)
+        ) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 8.5.dp)
+                    .size(53.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(24.dp),
+                    tint = MiuixTheme.colorScheme.onBackground
+                )
+            }
+        }
+    }
+}
+
+/** 关于页开源组件行：标题 + 说明（不可点击）。 */
+@Composable
+private fun MiuixAboutInfoRow(title: String, summary: String, last: Boolean = false) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(top = 12.dp, bottom = if (last) 12.dp else 0.dp)
+    ) {
+        Text(text = title, fontWeight = FontWeight.Medium)
+        Text(
+            text = summary,
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+        )
+    }
+}
+
+/** 打开外部链接（失败时提示）。 */
+private fun openUrl(context: Context, url: String) {
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: Exception) {
+        toast(context, "无法打开链接")
+    }
+}
+
 @Composable
 private fun MiuixDeviceDetailPage(
     peerId: String?,
@@ -2107,8 +2395,7 @@ private fun MiuixDeviceDetailPage(
     visible: Boolean,
     onBack: () -> Unit,
     onDeleteRequest: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
+    modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     val manager = remember { BleRelayManager.get(context) }

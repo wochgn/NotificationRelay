@@ -9,16 +9,19 @@ import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import android.widget.Toast
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -31,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -41,6 +45,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.ScrollState
@@ -56,14 +61,17 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Apps
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Search
@@ -112,10 +120,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -237,6 +249,17 @@ fun RelayMainContent(
         }
     }
 
+    // —— 关于页（MD3）：与 miuix 设备详情二级页一致的自右向左覆盖转场 ——
+    var showAbout by remember { mutableStateOf(false) }
+    val aboutProgress = remember { Animatable(0f) }
+    LaunchedEffect(showAbout) {
+        aboutProgress.animateTo(
+            if (showAbout) 1f else 0f,
+            tween(550, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f))
+        )
+    }
+    BackHandler(enabled = showAbout) { showAbout = false }
+
     // 标题：加粗、较默认增大（44sp 缩小 20% → 35sp），顶栏高度同步调整
     // 标题左缘与选项卡片左缘对齐（20dp 页边距；M3 默认 title 左距 16dp，补 4dp）
     val topBar: @Composable () -> Unit = {
@@ -251,6 +274,14 @@ fun RelayMainContent(
                 )
             },
             expandedHeight = TopAppBarDefaults.TopAppBarExpandedHeight * 1.6f,
+            actions = {
+                // 设置页顶栏右侧：关于按钮（与应用页排序按钮位置一致）
+                if (route == "settings") {
+                    IconButton(onClick = { showAbout = true }) {
+                        Icon(Icons.Outlined.Info, contentDescription = "关于")
+                    }
+                }
+            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface
             )
@@ -272,29 +303,65 @@ fun RelayMainContent(
         }
     }
 
-    if (widthSizeClass == WindowWidthSizeClass.Compact) {
-        // 手机竖屏：底部导航栏
-        Scaffold(
-            topBar = topBar,
-            bottomBar = {
-                NavigationBar {
-                    destinations.forEach { item ->
-                        NavigationBarItem(
-                            selected = route == item.route,
-                            onClick = { navigateTo(item) },
-                            icon = { Icon(item.icon, null) },
-                            label = { Text(item.title) }
-                        )
+    Box(Modifier.fillMaxSize()) {
+        // 主页面组：关于页进入时略微缩小并被渐进模糊覆盖
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val p = aboutProgress.value
+                    scaleX = 1f - 0.06f * p
+                    scaleY = 1f - 0.06f * p
+                    renderEffect = if (p > 0.01f) {
+                        val r = 12.dp.toPx() * p
+                        BlurEffect(r, r, TileMode.Clamp)
+                    } else {
+                        null
                     }
                 }
+        ) {
+            if (widthSizeClass == WindowWidthSizeClass.Compact) {
+                // 手机竖屏：底部导航栏
+                Scaffold(
+                    topBar = topBar,
+                    bottomBar = {
+                        NavigationBar {
+                            destinations.forEach { item ->
+                                NavigationBarItem(
+                                    selected = route == item.route,
+                                    onClick = { navigateTo(item) },
+                                    icon = { Icon(item.icon, null) },
+                                    label = { Text(item.title) }
+                                )
+                            }
+                        }
+                    }
+                ) { padding -> pagerPages(padding) }
+            } else {
+                // 平板/横屏/大屏：KernelSU 风格可展开侧边栏，内容区占满剩余空间
+                Row(Modifier.fillMaxSize()) {
+                    AppNavigationRail(currentRoute = route) { navigateTo(it) }
+                    Scaffold(topBar = topBar, modifier = Modifier.weight(1f)) { padding -> pagerPages(padding) }
+                }
             }
-        ) { padding -> pagerPages(padding) }
-    } else {
-        // 平板/横屏/大屏：KernelSU 风格可展开侧边栏，内容区占满剩余空间
-        Row(Modifier.fillMaxSize()) {
-            AppNavigationRail(currentRoute = route) { navigateTo(it) }
-            Scaffold(topBar = topBar, modifier = Modifier.weight(1f)) { padding -> pagerPages(padding) }
         }
+        // 主页面压暗层（覆盖内容/顶栏/底栏）
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = 0.4f * aboutProgress.value }
+                .background(Color.Black)
+        )
+        // 关于页：自右向左覆盖进入
+        MaterialAboutPage(
+            visible = showAbout,
+            onBack = { showAbout = false },
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = size.width * (1f - aboutProgress.value)
+                }
+        )
     }
 }
 
@@ -1146,4 +1213,190 @@ private fun RelayCard(
 
 private fun toast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * 关于页（MD3）：顶部栏返回 + 应用图标/名称/版本 + 链接与开源组件分组；
+ * 自右向左覆盖进入（与 miuix 设备详情二级页同款转场）。
+ */
+@Composable
+private fun MaterialAboutPage(
+    visible: Boolean,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val dark = isSystemInDarkTheme()
+    val versionName = remember {
+        try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+    val listState = rememberLazyListState()
+
+    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    // 二级页覆盖时拦截触摸，避免透传到被覆盖的主页面
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        do {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { it.consume() }
+                        } while (event.changes.any { it.pressed })
+                    }
+                }
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 32.dp)
+            ) {
+                item(key = "md3-about-topbar") {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(64.dp)
+                    ) {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回"
+                            )
+                        }
+                    }
+                }
+                item(key = "md3-about-hero") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Image(
+                            painter = painterResource(
+                                if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
+                            ),
+                            contentDescription = "应用图标",
+                            modifier = Modifier.size(112.dp)
+                        )
+                        Text(
+                            text = "NotificationRelay",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                        Text(
+                            text = versionName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+                item(key = "md3-about-author") {
+                    Text(
+                        text = "作者",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp)
+                    )
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                    ) {
+                        ListItem(
+                            headlineContent = { Text("wochgn") },
+                            supportingContent = { Text("GitHub") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/wochgn")
+                            }
+                        )
+                    }
+                }
+                item(key = "md3-about-links") {
+                    Text(
+                        text = "链接",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp)
+                    )
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                    ) {
+                        ListItem(
+                            headlineContent = { Text("GitHub 仓库") },
+                            supportingContent = { Text("查看源码与更新") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/wochgn/NotificationRelay")
+                            }
+                        )
+                    }
+                }
+                item(key = "md3-about-opensource") {
+                    Text(
+                        text = "开源组件",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp)
+                    )
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                    ) {
+                        Column {
+                            Md3AboutInfoRow("Miuix", "HyperOS 风格 Compose UI 组件库")
+                            Md3AboutInfoRow("Kyant Backdrop", "毛玻璃与液态玻璃效果")
+                            Md3AboutInfoRow("Kyant Shapes", "连续曲率（G2）圆角")
+                            Md3AboutInfoRow("KernelSU", "设计参考", last = true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Md3AboutInfoRow(title: String, summary: String, last: Boolean = false) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (last) 16.dp else 0.dp)
+    ) {
+        Text(text = title, style = MaterialTheme.typography.bodyLarge)
+        Text(
+            text = summary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 2.dp, bottom = if (last) 0.dp else 12.dp)
+        )
+    }
+}
+
+private fun openUrl(context: Context, url: String) {
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    } catch (_: Exception) {
+        toast(context, "无法打开链接")
+    }
 }
