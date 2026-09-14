@@ -189,6 +189,7 @@ fun FlowingGlowBackground(
 fun GlowMixedContent(
     modifier: Modifier = Modifier,
     timeState: FloatState,
+    active: Boolean = true,
     content: @Composable BoxScope.() -> Unit
 ) {
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
@@ -197,7 +198,7 @@ fun GlowMixedContent(
     ) {
         content()
         Canvas(Modifier.matchParentSize()) {
-            if (size.width <= 0f || size.height <= 0f) return@Canvas
+            if (!active || size.width <= 0f || size.height <= 0f) return@Canvas
             val time = timeState.floatValue
             val palette = if (isDark) DarkGlowPalette else LightGlowPalette
             val paletteColors = interpolateGlowColors(palette, time)
@@ -224,13 +225,13 @@ fun GlowMixedContent(
                     blendMode = BlendMode.SrcAtop
                 )
             } else {
-                // 深色：仅提对比度 + 轻微白色提亮
-                val tinted = baseColors.map { contrast(it, 2f).copy(alpha = 0.7f) }
+                // 深色：提对比度并整体更亮（提亮叠加更明显）
+                val tinted = baseColors.map { contrast(it, 1.9f).copy(alpha = 0.92f) }
                 drawRect(
                     brush = Brush.linearGradient(colors = tinted, start = start, end = end),
                     blendMode = BlendMode.SrcIn
                 )
-                drawRect(Color.White.copy(alpha = 0.22f), blendMode = BlendMode.SrcAtop)
+                drawRect(Color.White.copy(alpha = 0.34f), blendMode = BlendMode.SrcAtop)
             }
             // 与背景流光同源的光斑层
             val radiusMultiplier = max(size.width, size.height) / min(size.width, size.height) * 0.45f

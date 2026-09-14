@@ -2215,22 +2215,30 @@ private fun MiuixAboutPage(
             }
         }.collect { scrollProgress.value = it }
     }
-    // 共享动画时钟：仅页面可见时运行（60fps 上限，避免高刷屏无意义开销）
-    val glowTime = remember { mutableFloatStateOf(0f) }
+    // 打开页面时回到顶部
     LaunchedEffect(visible) {
+        if (visible) {
+            listState.scrollToItem(0)
+            scrollProgress.value = 0f
+        }
+    }
+    // 共享动画时钟：仅页面可见时运行（60fps 上限）；滑动中冻结时钟，降低绘制开销、保证滑动流畅
+    val glowTime = remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(visible, listState) {
         if (!visible) return@LaunchedEffect
-        val start = System.nanoTime()
-        var lastTick = -1L
+        var last = 0L
         while (true) {
             withFrameNanos { now ->
-                val elapsed = now - start
-                val tick = elapsed / 16_666_667L
-                if (tick != lastTick) {
-                    lastTick = tick
-                    glowTime.floatValue = elapsed / 1_000_000_000f
+                if (last != 0L && !listState.isScrollInProgress) {
+                    glowTime.floatValue += (now - last) / 1_000_000_000f
                 }
+                last = now
             }
         }
+    }
+    // 图标/文字混色层在滚动淡出后停绘，进一步降低滚动开销
+    val heroActive by remember {
+        derivedStateOf { scrollProgress.value < 0.99f }
     }
     Box(
         modifier
@@ -2269,7 +2277,7 @@ private fun MiuixAboutPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .fillParentMaxHeight(0.5f)
-                        .offset(y = (-5).dp)
+                        .offset(y = (-15).dp)
                         .graphicsLayer {
                             // 绘制阶段读取滚动进度，避免每帧重组整页
                             val spv = scrollProgress.value
@@ -2283,7 +2291,8 @@ private fun MiuixAboutPage(
                 ) {
                     GlowMixedContent(
                         modifier = Modifier.fillMaxWidth(0.38f).aspectRatio(1f),
-                        timeState = glowTime
+                        timeState = glowTime,
+                        active = heroActive
                     ) {
                         Image(
                             painter = painterResource(
@@ -2294,12 +2303,13 @@ private fun MiuixAboutPage(
                         )
                     }
                     GlowMixedContent(
-                        modifier = Modifier.padding(top = 16.dp),
-                        timeState = glowTime
+                        modifier = Modifier.padding(top = 10.dp),
+                        timeState = glowTime,
+                        active = heroActive
                     ) {
                         Text(
                             text = "NotificationRelay",
-                            fontSize = 20.sp,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
