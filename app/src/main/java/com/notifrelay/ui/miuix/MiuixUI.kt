@@ -198,6 +198,7 @@ import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.TopAppBarDefaults
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.menu.OverlayIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -477,7 +478,7 @@ private fun MiuixAppContent(
                     Icon(
                         imageVector = Icons.Rounded.Search,
                         contentDescription = "搜索",
-                        tint = MiuixTheme.colorScheme.primary
+                        tint = Color.Black
                     )
                 }
             }
@@ -494,7 +495,7 @@ private fun MiuixAppContent(
                 Icon(
                     imageVector = Icons.Rounded.Sort,
                     contentDescription = "排序",
-                    tint = MiuixTheme.colorScheme.primary
+                    tint = Color.Black
                 )
             }
         }
@@ -907,10 +908,11 @@ private fun MiuixAppContent(
                                 backdrop = backdrop,
                                 shape = { RectangleShape },
                                 effects = {
-                                    // 为全宽底栏扩展采样区域，避免左右边缘和系统导航区模糊缺失
-                                    padding = maxOf(padding, 40.dp.toPx())
                                     vibrancy()
                                     blur(12f.dp.toPx())
+                                    // 与顶栏一致：重置 blur 自动扩展的采样留白，避免底栏最底部
+                                    // 出现未采样的透明带、内容未被模糊而透出
+                                    padding = 0f
                                 },
                                 highlight = { Highlight(alpha = 0f) },
                                 shadow = { Shadow(alpha = 0f) },
@@ -1377,11 +1379,13 @@ private fun RowScope.MiuixLiquidGlassTabItems(
 }// ================= 设备页 =================
 
 /** 顶栏内容高度：原 TopAppBar 背景条缩短 40% 后的高度（不含状态栏）。 */
-private val MiuixTopBarContentHeight = 48.dp
+/** 顶栏内容高度：参考 KernelSU / miuix TopAppBar 的 CollapsedHeight（52dp，不含状态栏）。 */
+private val MiuixTopBarContentHeight = TopAppBarDefaults.CollapsedHeight
 
 /**
  * miuix 顶栏：背景常驻（提供 backdrop 时为毛玻璃模糊，否则纯 surface），
- * 图层位于页面内容上方；上滑时居中加粗小标题淡入上移。
+ * 图层位于页面内容上方；上滑时居中标题淡入上移。
+ * 高度、标题字号字重、右侧操作图标位置均参考 KernelSU 的 miuix TopAppBar。
  */
 @Composable
 private fun MiuixCollapsingTopBar(
@@ -1405,10 +1409,12 @@ private fun MiuixCollapsingTopBar(
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
-                        // 扩展采样区域，避免顶栏最顶部/左右边缘模糊缺失（内容从顶部透出）
-                        padding = maxOf(padding, 40.dp.toPx())
                         vibrancy()
                         blur(12f.dp.toPx())
+                        // vibrancy 先设置颜色滤镜会使 blur 把采样留白扩到模糊半径，
+                        // 图层边缘超出屏幕成为透明带，导致最顶部/最底部内容未被模糊而透出。
+                        // 重置为 0，让模糊层与顶栏范围一致、边缘按 Clamp 采样。
+                        padding = 0f
                     },
                     highlight = { Highlight(alpha = 0f) },
                     shadow = { Shadow(alpha = 0f) },
@@ -1425,8 +1431,8 @@ private fun MiuixCollapsingTopBar(
         ) {
             Text(
                 text = title,
-                style = MiuixTheme.textStyles.main,
-                fontWeight = FontWeight.Bold,
+                style = MiuixTheme.textStyles.title3,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier.graphicsLayer {
                     alpha = sp
                     translationY = (1f - sp) * 14.dp.toPx()
@@ -1436,7 +1442,8 @@ private fun MiuixCollapsingTopBar(
                 Row(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 4.dp),
+                        // 参考 miuix TopAppBar 的 ActionIconPadding，并按需求整体左移 5px
+                        .padding(end = TopAppBarDefaults.ActionIconPadding + with(density) { 5.toDp() }),
                     verticalAlignment = Alignment.CenterVertically,
                     content = actions
                 )
