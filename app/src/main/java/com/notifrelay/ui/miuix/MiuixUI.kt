@@ -143,6 +143,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
@@ -271,6 +272,7 @@ private fun MiuixAppContent(
     val repo = remember { SettingsRepository.get(context) }
     var glassBarEnabled by remember { mutableStateOf(repo.liquidGlassBarEnabled) }
     val tab = miuixTabs.firstOrNull { it.key == currentTab } ?: miuixTabs.first()
+    val wide = widthSizeClass != WindowWidthSizeClass.Compact
 
     BackHandler { (context as? Activity)?.finish() }
 
@@ -390,6 +392,12 @@ private fun MiuixAppContent(
     fun dismissDeleteDialog(afterStart: (() -> Unit)? = null) {
         if (deleteDialogExiting) return
         afterStart?.invoke()
+        if (wide) {
+            // 大屏：退出动画与 miuix OverlayDialog 原生设计一致，不做自写位移
+            showDeleteDialog = false
+            dialogAnimationScope.launch { deleteDialogExitProgress.snapTo(0f) }
+            return
+        }
         deleteDialogExiting = true
         dialogAnimationScope.launch {
             deleteDialogExitProgress.snapTo(0f)
@@ -477,7 +485,8 @@ private fun MiuixAppContent(
                         },
                         scrollProgress = settingsScrollProgress,
                         scrollState = settingsScrollState,
-                        dialogVisible = settingsDialogVisible
+                        dialogVisible = settingsDialogVisible,
+                        wide = wide
                     )
                 }
             }
@@ -666,7 +675,7 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
-                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                        .secondaryPageCorner({ statusProgress.value }, deviceCornerDp)
                 )
                 // 设备详情页压暗层（覆盖主页面，位于二级页之下）
                 Box(
@@ -697,7 +706,7 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
-                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                        .secondaryPageCorner({ devicePageProgress.value }, deviceCornerDp)
                 )
                 // 关于页：与设备详情页一致的转场
                 MiuixAboutPage(
@@ -719,7 +728,7 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
-                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                        .secondaryPageCorner({ aboutPageProgress.value }, deviceCornerDp)
                 )
                 // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
                 Box(
@@ -833,7 +842,7 @@ private fun MiuixAppContent(
                             null
                         }
                     }
-                    .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                    .secondaryPageCorner({ statusProgress.value }, deviceCornerDp)
             )
             // 设备详情页压暗层（覆盖侧边栏与主页面，位于二级页之下）
             Box(
@@ -864,7 +873,7 @@ private fun MiuixAppContent(
                             null
                         }
                     }
-                    .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                    .secondaryPageCorner({ devicePageProgress.value }, deviceCornerDp)
             )
             // 关于页：与设备详情页一致的转场
             MiuixAboutPage(
@@ -886,7 +895,7 @@ private fun MiuixAppContent(
                             null
                         }
                     }
-                    .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                    .secondaryPageCorner({ aboutPageProgress.value }, deviceCornerDp)
             )
             // 取消配对/删除确认弹窗（设备列表与设备详情页共用）
             OverlayDialog(
@@ -1078,7 +1087,7 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
-                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                        .secondaryPageCorner({ statusProgress.value }, deviceCornerDp)
                 )
                 // 设备详情页压暗层（覆盖主页面，位于二级页之下）
                 Box(
@@ -1109,7 +1118,7 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
-                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                        .secondaryPageCorner({ devicePageProgress.value }, deviceCornerDp)
                 )
                 // 关于页：与设备详情页一致的转场
                 MiuixAboutPage(
@@ -1131,7 +1140,7 @@ private fun MiuixAppContent(
                                 null
                             }
                         }
-                        .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+                        .secondaryPageCorner({ aboutPageProgress.value }, deviceCornerDp)
                 )
                 // 弹窗压暗层：与模糊/缩小同一进度淡入淡出
                 Box(
@@ -1771,6 +1780,12 @@ private fun MiuixDevicesScreen(
     fun dismissPairDialog(afterStart: (() -> Unit)? = null) {
         if (pairDialogExiting) return
         afterStart?.invoke()
+        if (wide) {
+            // 大屏：退出动画与 miuix OverlayDialog 原生设计一致，不做自写位移
+            showPairDialog = false
+            dialogAnimationScope.launch { pairDialogExitProgress.snapTo(0f) }
+            return
+        }
         pairDialogExiting = true
         dialogAnimationScope.launch {
             pairDialogExitProgress.snapTo(0f)
@@ -1881,12 +1896,12 @@ private fun MiuixDevicesScreen(
         if (wide) {
             // 大屏：已配对设备（左）与附近可用设备（右）分栏
             item(key = "wide-device-columns") {
-                Row(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(top = MiuixPageItemSpacing)) {
                     Column(Modifier.weight(1f)) {
                         MiuixSectionTitle("已配对设备")
                         savedRows.forEachIndexed { index, row ->
-                            // 与「已连接设备」卡片间距一致
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
+                            // 标题下首张卡片间距与设置页类别一致；卡片之间与非大屏一致
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else MiuixPageItemSpacing)) {
                                 MiuixSavedDeviceCard(
                                     name = row.name.ifBlank { "未知设备" },
                                     deviceId = row.id,
@@ -1906,8 +1921,8 @@ private fun MiuixDevicesScreen(
                             onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                         )
                         nearbyRows.forEachIndexed { index, row ->
-                            // 与「已连接设备」卡片间距一致
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
+                            // 标题下首张卡片间距与设置页类别一致；卡片之间与非大屏一致
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else MiuixPageItemSpacing)) {
                                 MiuixCard {
                                     MiuixDeviceRow(manager, row, {})
                                 }
@@ -2329,7 +2344,7 @@ private fun MiuixAboutPage(
             )
     ) {
         // 关于页卡片半透明，让背景流光部分透出
-        val cardColor = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f)
+        val cardColor = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.75f)
         // 名称与图标的间距（默认 10dp，再上移 20px，且不为负）
         val nameGap = (10.dp - with(density) { 20.toDp() }).coerceAtLeast(0.dp)
 
@@ -2429,9 +2444,9 @@ private fun MiuixAboutPage(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                        // 名称与版本作为一组，整体较默认位置再上移 50px
+                        // 名称与版本作为一组，整体较默认位置再上移 25px
                         Column(
-                            modifier = Modifier.offset(y = with(density) { (-50).toDp() }),
+                            modifier = Modifier.offset(y = with(density) { (-25).toDp() }),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             GlowMixedContent(
@@ -2514,25 +2529,31 @@ private fun MiuixAboutPage(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                        GlowMixedContent(
-                            modifier = Modifier.padding(top = nameGap),
-                            timeState = glowTime,
-                            active = heroActive
+                        // 名称与版本作为一组，整体再上移 20px
+                        Column(
+                            modifier = Modifier.offset(y = with(density) { (-20).toDp() }),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            GlowMixedContent(
+                                modifier = Modifier.padding(top = nameGap),
+                                timeState = glowTime,
+                                active = heroActive
+                            ) {
+                                Text(
+                                    text = "NotificationRelay",
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    // 留出少量边距，避免离屏混色层裁切文字右缘
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
                             Text(
-                                text = "NotificationRelay",
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                // 留出少量边距，避免离屏混色层裁切文字右缘
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                text = versionName,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(top = 6.dp)
                             )
                         }
-                        Text(
-                            text = versionName,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
                     }
                 }
                 aboutSections()
@@ -3295,7 +3316,8 @@ private fun MiuixSettingsScreen(
     onGlassBarChanged: (Boolean) -> Unit,
     scrollProgress: MutableState<Float>,
     scrollState: ScrollState,
-    dialogVisible: MutableState<Boolean>
+    dialogVisible: MutableState<Boolean>,
+    wide: Boolean
 ) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
@@ -3371,6 +3393,12 @@ private fun MiuixSettingsScreen(
         }
         fun dismissResetDialog() {
             if (resetDialogExiting) return
+            if (wide) {
+                // 大屏：退出动画与 miuix OverlayDialog 原生设计一致，不做自写位移
+                showResetNameDialog = false
+                dialogAnimationScope.launch { resetDialogExitProgress.snapTo(0f) }
+                return
+            }
             resetDialogExiting = true
             dialogAnimationScope.launch {
                 resetDialogExitProgress.snapTo(0f)
@@ -3600,6 +3628,21 @@ private fun MiuixSectionTitle(text: String, modifier: Modifier = Modifier) {
         insideMargin = MiuixSectionTitleMargin
     )
 }
+
+/**
+ * 二级页左缘圆角：进入动画播放完毕后展开为直角（由系统屏幕圆角接管），
+ * 退出动画触发瞬间（进度一旦小于 1）立即缩回设备屏幕圆角。
+ * 进度在绘制阶段读取，避免逐帧重组。
+ */
+private fun Modifier.secondaryPageCorner(progress: () -> Float, radius: Dp): Modifier =
+    graphicsLayer {
+        val settled = progress() >= 1f
+        shape = RoundedCornerShape(
+            topStart = if (settled) 0.dp else radius,
+            bottomStart = if (settled) 0.dp else radius
+        )
+        clip = true
+    }
 
 @Composable
 private fun MiuixSwitchPref(

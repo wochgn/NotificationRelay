@@ -370,7 +370,8 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun currentState(): RelayState {
-        val snapshot = sessionsSnapshot()
+        // 正在断开（如已取消配对）的会话不再作为已连接设备对外呈现
+        val snapshot = sessionsSnapshot().filter { !it.disconnecting }
         val peers = snapshot.map { s ->
             PeerState(
                 s.remoteDeviceId, s.address, s.remoteName, s.remoteAndroid, s.remoteBattery,
@@ -589,13 +590,23 @@ class BleRelayManager private constructor(context: Context) {
     }
 
     fun unpair(deviceId: String) {
-        SettingsRepository.get(appContext).removeDevice(deviceId)
-        val targets = sessionsSnapshot().filter { it.remoteDeviceId == deviceId }
-        targets.forEach {
-            log("正在同步取消配对")
-            autoReconnectPaused = true
-            sendControlAndDisconnect(it, "unpair")
+        val repo = SettingsRepository.get(appContext)
+        // 会话可能尚未完成握手（remoteDeviceId 为空），用已保存的设备名兜底匹配
+        val savedName = repo.findByDeviceId(deviceId)?.name.orEmpty()
+        repo.removeDevice(deviceId)
+        val targets = sessionsSnapshot().filter {
+            it.remoteDeviceId == deviceId ||
+                (it.remoteDeviceId.isBlank() && savedName.isNotBlank() && it.remoteName == savedName)
         }
+        if (targets.isNotEmpty()) {
+            autoReconnectPaused = true
+            targets.forEach {
+                log("正在同步取消配对")
+                sendControlAndDisconnect(it, "unpair")
+            }
+        }
+        // 已配对项已移除，通知 UI 刷新列表
+        notifyState()
     }
 
     /** 让远端响铃；deviceId 为空时选择第一台已连接设备。 */
