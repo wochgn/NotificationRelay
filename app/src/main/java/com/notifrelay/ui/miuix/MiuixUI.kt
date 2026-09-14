@@ -90,6 +90,7 @@ import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.animation.core.Animatable
@@ -150,6 +151,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.notifrelay.AppLabelComparator
 import com.notifrelay.BleRelayManager
 import com.notifrelay.DeviceInfo
 import com.notifrelay.DiscoveryState
@@ -527,7 +529,7 @@ private fun MiuixAppContent(
         {
             IconButton(onClick = { showAboutPage.value = true }) {
                 Icon(
-                    imageVector = Icons.Rounded.Info,
+                    imageVector = Icons.Outlined.Info,
                     contentDescription = "关于",
                     tint = topBarActionIconTint
                 )
@@ -1499,6 +1501,12 @@ private fun MiuixCollapsingTopBar(
                     onDrawSurface = { drawRect(surfaceColor) }
                 ) else Modifier.background(surfaceColor)
             )
+            // 拦截顶栏区域的点击，避免点击透传到被顶栏遮挡的列表项；拖动不消费，列表仍可滚动
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { }
+            )
     ) {
         Box(
             Modifier
@@ -2245,16 +2253,12 @@ private fun MiuixAboutPage(
             .fillMaxSize()
             .background(MiuixTheme.colorScheme.surface)
             .statusBarsPadding()
-            .pointerInput(Unit) {
-                // 二级页覆盖时拦截触摸，避免透传到被覆盖的主页面
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    do {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
+            // 拦截点击避免透传到主页面；不使用手势消费循环，避免影响列表滑动
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { }
+            )
     ) {
         FlowingGlowBackground(
             modifier = Modifier.fillMaxSize(),
@@ -2277,7 +2281,8 @@ private fun MiuixAboutPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .fillParentMaxHeight(0.5f)
-                        .offset(y = (-15).dp)
+                        // 累计上移 95px（此前 45px + 本次 50px）
+                        .offset(y = with(density) { (-95).toDp() })
                         .graphicsLayer {
                             // 绘制阶段读取滚动进度，避免每帧重组整页
                             val spv = scrollProgress.value
@@ -2310,7 +2315,9 @@ private fun MiuixAboutPage(
                         Text(
                             text = "NotificationRelay",
                             fontSize = 24.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            // 留出少量边距，避免离屏混色层裁切文字右缘
+                            modifier = Modifier.padding(horizontal = 4.dp)
                         )
                     }
                     Text(
@@ -2385,11 +2392,16 @@ private fun MiuixAboutPage(
                 }
             }
         }
-        // 顶栏：仅返回按钮（与设备详情页一致）
+        // 顶栏：仅返回按钮（与设备详情页一致）；拦截点击避免透传到被遮挡内容
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(MiuixTopBarContentHeight)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { }
+                )
         ) {
             Box(
                 Modifier
@@ -2900,7 +2912,7 @@ private fun MiuixAppsScreen(
                             try { result.loadLabel(pm).toString() } catch (_: Exception) { pkg },
                             try { result.loadIcon(pm) } catch (_: Exception) { null }
                         )
-                    }.distinctBy { it.pkg }.sortedBy { it.label.lowercase() }
+                    }.distinctBy { it.pkg }.sortedWith(compareBy(AppLabelComparator) { it.label })
             }
         }
         apps = cachedApps.orEmpty()
@@ -2914,12 +2926,14 @@ private fun MiuixAppsScreen(
     // 排序方式：首字母正序/倒序、已启用优先、未启用优先
     val sorted = remember(filtered, sortOrder, selected) {
         when (sortOrder) {
-            1 -> filtered.sortedByDescending { it.label.lowercase() }
+            1 -> filtered.sortedWith(compareByDescending(AppLabelComparator) { it.label })
             2 -> filtered.sortedWith(
-                compareByDescending<MiuixAppInfo> { it.pkg in selected }.thenBy { it.label.lowercase() }
+                compareByDescending<MiuixAppInfo> { it.pkg in selected }
+                    .thenBy(AppLabelComparator) { it.label }
             )
             3 -> filtered.sortedWith(
-                compareBy<MiuixAppInfo> { it.pkg in selected }.thenBy { it.label.lowercase() }
+                compareBy<MiuixAppInfo> { it.pkg in selected }
+                    .thenBy(AppLabelComparator) { it.label }
             )
             else -> filtered
         }

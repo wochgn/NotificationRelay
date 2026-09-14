@@ -206,7 +206,8 @@ fun GlowMixedContent(
             val cx = size.width / 2f
             val cy = size.height / 2f
             val len = max(size.width, size.height) * 1.5f
-            val ang = time * 0.9f
+            // 扫掠旋转速度与背景流光漂移速度一致，保证颜色变化节奏同步
+            val ang = time * 0.55f
             val cosA = cos(ang)
             val sinA = sin(ang)
             val start = Offset(cx - cosA * len, cy - sinA * len)
@@ -225,13 +226,13 @@ fun GlowMixedContent(
                     blendMode = BlendMode.SrcAtop
                 )
             } else {
-                // 深色：提对比度并整体更亮（提亮叠加更明显）
-                val tinted = baseColors.map { contrast(it, 1.9f).copy(alpha = 0.92f) }
+                // 深色：直接使用与背景流光相同的调色板颜色（不做色相偏移），仅轻微提亮
+                val tinted = baseColors.map { it.copy(alpha = 1f) }
                 drawRect(
                     brush = Brush.linearGradient(colors = tinted, start = start, end = end),
                     blendMode = BlendMode.SrcIn
                 )
-                drawRect(Color.White.copy(alpha = 0.34f), blendMode = BlendMode.SrcAtop)
+                drawRect(Color.White.copy(alpha = 0.26f), blendMode = BlendMode.SrcAtop)
             }
             // 与背景流光同源的光斑层
             val radiusMultiplier = max(size.width, size.height) / min(size.width, size.height) * 0.45f

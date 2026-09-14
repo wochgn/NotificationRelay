@@ -76,11 +76,15 @@ import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Sort
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -145,6 +149,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.notifrelay.AppLabelComparator
 import com.notifrelay.BleRelayManager
 import com.notifrelay.DeviceInfo
 import com.notifrelay.DiscoveryState
@@ -260,6 +265,11 @@ fun RelayMainContent(
     }
     BackHandler(enabled = showAbout) { showAbout = false }
 
+    // 应用页排序（与 miuix 应用页一致）：0=首字母正序，1=倒序，2=已启用优先，3=未启用优先
+    val appRepo = remember { SettingsRepository.get(context) }
+    var appSortOrder by remember { mutableIntStateOf(appRepo.appSortOrder) }
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
     // 标题：加粗、较默认增大（44sp 缩小 20% → 35sp），顶栏高度同步调整
     // 标题左缘与选项卡片左缘对齐（20dp 页边距；M3 默认 title 左距 16dp，补 4dp）
     val topBar: @Composable () -> Unit = {
@@ -275,6 +285,35 @@ fun RelayMainContent(
             },
             expandedHeight = TopAppBarDefaults.TopAppBarExpandedHeight * 1.6f,
             actions = {
+                // 应用页顶栏右侧：排序菜单（与 miuix 应用页一致）
+                if (route == "apps") {
+                    Box {
+                        IconButton(onClick = { sortMenuExpanded = true }) {
+                            Icon(Icons.Outlined.Sort, contentDescription = "排序")
+                        }
+                        DropdownMenu(
+                            expanded = sortMenuExpanded,
+                            onDismissRequest = { sortMenuExpanded = false }
+                        ) {
+                            listOf("按首字母正序", "按首字母倒序", "已启用的应用优先", "未启用的应用优先")
+                                .forEachIndexed { index, label ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            appSortOrder = index
+                                            appRepo.appSortOrder = index
+                                            sortMenuExpanded = false
+                                        },
+                                        trailingIcon = {
+                                            if (appSortOrder == index) {
+                                                Icon(Icons.Rounded.Check, contentDescription = null)
+                                            }
+                                        }
+                                    )
+                                }
+                        }
+                    }
+                }
                 // 设置页顶栏右侧：关于按钮（与应用页排序按钮位置一致）
                 if (route == "settings") {
                     IconButton(onClick = { showAbout = true }) {
@@ -297,7 +336,7 @@ fun RelayMainContent(
         ) { page ->
             when (destinations[page].route) {
                 "devices" -> DevicesScreen(manager, widthSizeClass != WindowWidthSizeClass.Compact)
-                "apps" -> AppsScreen()
+                "apps" -> AppsScreen(appSortOrder)
                 "settings" -> SettingsScreen(settingsScrollState)
             }
         }
@@ -874,7 +913,7 @@ data class AppInfo(val pkg: String, val label: String, val icon: Drawable?)
 private val appIconBitmaps = LruCache<String, ImageBitmap>(256)
 
 @Composable
-private fun AppsScreen() {
+private fun AppsScreen(sortOrder: Int = 0) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     // 勾选状态由 Compose 状态持有：LazyColumn item 只读取非状态的 repo 属性时不会随设置变化重组
@@ -900,6 +939,21 @@ private fun AppsScreen() {
     val filtered = remember(apps, query) {
         if (query.isBlank()) apps else apps.filter {
             it.label.contains(query, true) || it.pkg.contains(query, true)
+        }
+    }
+    // 排序方式：首字母正序/倒序、已启用优先、未启用优先
+    val sorted = remember(filtered, sortOrder, selected) {
+        when (sortOrder) {
+            1 -> filtered.sortedWith(compareByDescending(AppLabelComparator) { it.label })
+            2 -> filtered.sortedWith(
+                compareByDescending<AppInfo> { it.pkg in selected }
+                    .thenBy(AppLabelComparator) { it.label }
+            )
+            3 -> filtered.sortedWith(
+                compareBy<AppInfo> { it.pkg in selected }
+                    .thenBy(AppLabelComparator) { it.label }
+            )
+            else -> filtered
         }
     }
 
@@ -934,6 +988,8 @@ private fun AppsScreen() {
                     selected = repo.whitelist
                     toast(context, "已全部开启")
                 },
+                // 未开启「仅转发选中的应用」时不可操作
+                enabled = onlyWhitelist,
                 modifier = Modifier.weight(1f)
             ) { Text("全部开启") }
             OutlinedButton(
@@ -942,6 +998,7 @@ private fun AppsScreen() {
                     selected = repo.whitelist
                     toast(context, "已全部关闭")
                 },
+                enabled = onlyWhitelist,
                 modifier = Modifier.weight(1f)
             ) { Text("全部关闭") }
         }
@@ -949,8 +1006,13 @@ private fun AppsScreen() {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
-                items(filtered, key = { it.pkg }) { app ->
-                    AppRow(app, checked = app.pkg in selected) {
+                items(sorted, key = { it.pkg }) { app ->
+                    AppRow(
+                        app = app,
+                        checked = app.pkg in selected,
+                        // 未开启「仅转发选中的应用」时整行置灰不可点击（保留已勾选记录）
+                        enabled = onlyWhitelist
+                    ) {
                         repo.setAppEnabled(app.pkg, it)
                         selected = repo.whitelist
                     }
@@ -961,7 +1023,7 @@ private fun AppsScreen() {
 }
 
 @Composable
-private fun AppRow(app: AppInfo, checked: Boolean, onChecked: (Boolean) -> Unit) {
+private fun AppRow(app: AppInfo, checked: Boolean, enabled: Boolean = true, onChecked: (Boolean) -> Unit) {
     val bitmap = remember(app.pkg) {
         appIconBitmaps.get(app.pkg)
             ?: app.icon?.toBitmap(48, 48)?.asImageBitmap()?.also { appIconBitmaps.put(app.pkg, it) }
@@ -970,10 +1032,23 @@ private fun AppRow(app: AppInfo, checked: Boolean, onChecked: (Boolean) -> Unit)
         headlineContent = { Text(app.label) },
         supportingContent = { Text(app.pkg, style = MaterialTheme.typography.bodySmall) },
         leadingContent = {
-            if (bitmap != null) Image(bitmap, null, Modifier.size(44.dp))
-            else Icon(Icons.Outlined.Apps, null, Modifier.size(44.dp))
+            if (bitmap != null) {
+                Image(
+                    bitmap, null, Modifier.size(44.dp).graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+                )
+            } else {
+                Icon(
+                    Icons.Outlined.Apps, null, Modifier.size(44.dp).graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+                )
+            }
         },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onChecked) }
+        trailingContent = {
+            Switch(checked = checked, onCheckedChange = onChecked, enabled = enabled)
+        },
+        colors = ListItemDefaults.colors(
+            headlineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+            supportingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f)
+        )
     )
 }
 
@@ -988,7 +1063,7 @@ private fun loadApps(context: Context): List<AppInfo> {
                 try { result.loadLabel(pm).toString() } catch (_: Exception) { pkg },
                 try { result.loadIcon(pm) } catch (_: Exception) { null }
             )
-        }.distinctBy { it.pkg }.sortedBy { it.label.lowercase() }
+        }.distinctBy { it.pkg }.sortedWith(compareBy(AppLabelComparator) { it.label })
 }
 
 @Composable
