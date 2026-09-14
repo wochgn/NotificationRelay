@@ -61,7 +61,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -75,6 +77,8 @@ import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Sort
 import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.Tablet
 import androidx.compose.material.icons.outlined.Apps
@@ -109,6 +113,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -161,7 +167,10 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import com.kyant.backdrop.Backdrop
@@ -178,6 +187,7 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.UnevenRoundedRectangle
 import top.yukonga.miuix.kmp.basic.NavigationRail
 import top.yukonga.miuix.kmp.basic.NavigationRailItem
 import top.yukonga.miuix.kmp.basic.NavigationRailValue
@@ -189,6 +199,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.menu.OverlayIconDropdownMenu
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
 import kotlin.math.max
@@ -308,6 +319,30 @@ private fun MiuixAppContent(
     }
     BackHandler(enabled = showDevicePage.value) { showDevicePage.value = false }
 
+    // —— 应用页：列表状态提升到顶栏同级，供顶栏排序/搜索操作驱动 ——
+    val appsListState = rememberLazyListState()
+    val appsSearchFocus = remember { FocusRequester() }
+    var appsScrollToSearch by remember { mutableIntStateOf(0) }
+    var appSortOrder by remember { mutableIntStateOf(repo.appSortOrder) }
+    fun setAppSortOrder(value: Int) {
+        appSortOrder = value
+        repo.appSortOrder = value
+    }
+    val appsTopBarHeightPx = with(density) {
+        WindowInsets.statusBars.getTop(density) + MiuixTopBarContentHeight.roundToPx()
+    }
+    // 搜索框被顶栏遮住（或已滚出屏幕）时，顶栏显示搜索图标
+    val appsSearchHidden by remember {
+        derivedStateOf {
+            val visible = appsListState.layoutInfo.visibleItemsInfo
+            if (visible.isEmpty()) false
+            else {
+                val search = visible.firstOrNull { it.key == "search" }
+                search == null || search.offset + search.size <= appsTopBarHeightPx
+            }
+        }
+    }
+
     // 取消配对/删除确认弹窗上移至此：设备列表与设备详情页共用
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deleteDialogExiting by remember { mutableStateOf(false) }
@@ -404,7 +439,13 @@ private fun MiuixAppContent(
                         onDeleteRequest = { openDeleteDialog(it) },
                         dialogVisible = devicesDialogVisible
                     )
-                    "apps" -> MiuixAppsScreen(appsScrollProgress)
+                    "apps" -> MiuixAppsScreen(
+                        scrollProgress = appsScrollProgress,
+                        listState = appsListState,
+                        sortOrder = appSortOrder,
+                        scrollToSearchTrigger = appsScrollToSearch,
+                        searchFocusRequester = appsSearchFocus
+                    )
                     "settings" -> MiuixSettingsScreen(
                         glassBarEnabled = glassBarEnabled,
                         onGlassBarChanged = {
@@ -427,6 +468,37 @@ private fun MiuixAppContent(
     val pageArea: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) { pages() }
     }
+
+    // 应用页顶栏操作：搜索（搜索框被顶栏遮住时出现）+ 排序
+    val appsTopBarActions: (@Composable RowScope.() -> Unit)? = if (currentTab == "apps") {
+        {
+            if (appsSearchHidden) {
+                IconButton(onClick = { appsScrollToSearch++ }) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "搜索",
+                        tint = MiuixTheme.colorScheme.primary
+                    )
+                }
+            }
+            OverlayIconDropdownMenu(
+                entry = DropdownEntry(
+                    items = listOf(
+                        DropdownItem(text = "按首字母正序", selected = appSortOrder == 0, onClick = { setAppSortOrder(0) }),
+                        DropdownItem(text = "按首字母倒序", selected = appSortOrder == 1, onClick = { setAppSortOrder(1) }),
+                        DropdownItem(text = "已启用的应用优先", selected = appSortOrder == 2, onClick = { setAppSortOrder(2) }),
+                        DropdownItem(text = "未启用的应用优先", selected = appSortOrder == 3, onClick = { setAppSortOrder(3) })
+                    )
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Sort,
+                    contentDescription = "排序",
+                    tint = MiuixTheme.colorScheme.primary
+                )
+            }
+        }
+    } else null
 
     // 开启液态玻璃底栏时：手机与 Pad 统一使用底部悬浮玻璃栏（Pad 不再显示侧边栏）
     val useGlassBar = glassBarEnabled
@@ -469,6 +541,7 @@ private fun MiuixAppContent(
                     title = title,
                     scrollProgress = scrollProgress,
                     backdrop = backdrop,
+                    actions = appsTopBarActions,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
                 // 底栏随二级页进入向下滑出，退出时向上滑回；参与整体压暗与模糊，但不缩小（描边不变形）
@@ -804,10 +877,12 @@ private fun MiuixAppContent(
                     title = title,
                     scrollProgress = scrollProgress,
                     backdrop = backdrop,
+                    actions = appsTopBarActions,
                     modifier = Modifier.align(Alignment.TopCenter)
                 )
-                // 表面 92% 不透明：小白条区域不透出背景文字；非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
-                val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.92f)
+                // 表面不透明度与顶栏一致（0.78），保证未开启液态玻璃底栏时模糊观感相同；
+                // 非玻璃底栏不缩小，仅随二级页下滑并参与压暗/模糊
+                val surfaceColor = MiuixTheme.colorScheme.surface.copy(alpha = 0.78f)
                 Box(
                     Modifier
                         .align(Alignment.BottomCenter)
@@ -1313,7 +1388,8 @@ private fun MiuixCollapsingTopBar(
     title: String,
     scrollProgress: State<Float>,
     modifier: Modifier = Modifier,
-    backdrop: Backdrop? = null
+    backdrop: Backdrop? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null
 ) {
     val density = LocalDensity.current
     val statusBarHeightDp = with(density) { WindowInsets.statusBars.getTop(density).toDp() }
@@ -1329,6 +1405,8 @@ private fun MiuixCollapsingTopBar(
                     backdrop = backdrop,
                     shape = { RectangleShape },
                     effects = {
+                        // 扩展采样区域，避免顶栏最顶部/左右边缘模糊缺失（内容从顶部透出）
+                        padding = maxOf(padding, 40.dp.toPx())
                         vibrancy()
                         blur(12f.dp.toPx())
                     },
@@ -1354,6 +1432,15 @@ private fun MiuixCollapsingTopBar(
                     translationY = (1f - sp) * 14.dp.toPx()
                 }
             )
+            if (actions != null) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions
+                )
+            }
         }
     }
 }
@@ -1655,7 +1742,8 @@ private fun MiuixDevicesScreen(
             item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
             savedRows.forEachIndexed { index, row ->
                 item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
-                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
+                    // 已配对设备卡片之间间距在基础上再增加 35%
+                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
                         MiuixSavedDeviceCard(
                             name = row.name.ifBlank { "未知设备" },
                             deviceId = row.id,
@@ -1676,10 +1764,11 @@ private fun MiuixDevicesScreen(
                 onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
             )
         }
-        if (nearbyRows.isNotEmpty()) {
-            item {
-                MiuixCard {
-                    nearbyRows.forEach { row ->
+        nearbyRows.forEachIndexed { index, row ->
+            item(key = "nearby-${row.id.ifBlank { row.address }}-${row.address}") {
+                // 附近可用设备卡片之间间距在基础上再增加 35%
+                Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                    MiuixCard {
                         MiuixDeviceRow(manager, row, {})
                     }
                 }
@@ -2423,7 +2512,13 @@ data class MiuixAppInfo(val pkg: String, val label: String, val icon: Drawable?)
 private val appIconBitmaps = LruCache<String, ImageBitmap>(256)
 
 @Composable
-private fun MiuixAppsScreen(scrollProgress: MutableState<Float>) {
+private fun MiuixAppsScreen(
+    scrollProgress: MutableState<Float>,
+    listState: LazyListState,
+    sortOrder: Int,
+    scrollToSearchTrigger: Int,
+    searchFocusRequester: FocusRequester
+) {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
     // 勾选状态由 Compose 状态持有：LazyColumn item 只读取非状态的 repo 属性时不会随设置变化重组，
@@ -2465,8 +2560,20 @@ private fun MiuixAppsScreen(scrollProgress: MutableState<Float>) {
             it.label.contains(query, true) || it.pkg.contains(query, true)
         }
     }
+    // 排序方式：首字母正序/倒序、已启用优先、未启用优先
+    val sorted = remember(filtered, sortOrder, selected) {
+        when (sortOrder) {
+            1 -> filtered.sortedByDescending { it.label.lowercase() }
+            2 -> filtered.sortedWith(
+                compareByDescending<MiuixAppInfo> { it.pkg in selected }.thenBy { it.label.lowercase() }
+            )
+            3 -> filtered.sortedWith(
+                compareBy<MiuixAppInfo> { it.pkg in selected }.thenBy { it.label.lowercase() }
+            )
+            else -> filtered
+        }
+    }
 
-    val listState = rememberLazyListState()
     val density = LocalDensity.current
     val topContentInset = with(density) { WindowInsets.statusBars.getTop(density).toDp() } +
         MiuixTopBarContentHeight
@@ -2478,6 +2585,14 @@ private fun MiuixAppsScreen(scrollProgress: MutableState<Float>) {
                 else (offset / titleFadePx).coerceIn(0f, 1f)
             }
     }
+    // 顶栏搜索图标点击：回到顶部并聚焦搜索框
+    LaunchedEffect(scrollToSearchTrigger) {
+        if (scrollToSearchTrigger > 0) {
+            listState.animateScrollToItem(0)
+            delay(120)
+            runCatching { searchFocusRequester.requestFocus() }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -2485,33 +2600,25 @@ private fun MiuixAppsScreen(scrollProgress: MutableState<Float>) {
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             top = topContentInset + 4.dp,
             bottom = 96.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
+        )
     ) {
         item(key = "page-title") {
             MiuixPageTitle("应用", scrollProgress, lifted = true)
         }
-        item(key = "master-switch") {
-            MiuixCard {
-                MiuixSwitchPref(
-                    title = "仅转发选中的应用",
-                    summary = if (onlyWhitelist) "当前仅转发下方勾选的应用"
-                    else "当前转发全部应用；开启后仅转发下方勾选的应用",
-                    checked = onlyWhitelist
-                ) {
-                    onlyWhitelist = it
-                    repo.onlyWhitelist = it
-                }
-            }
-        }
+        // 搜索框置于大标题下方，长胶囊形状
         item(key = "search") {
             TextField(
                 value = query,
                 onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(top = MiuixPageItemSpacing)
+                    .focusRequester(searchFocusRequester),
                 label = "搜索应用",
                 useLabelAsPlaceholder = true,
                 singleLine = true,
+                cornerRadius = 28.dp,
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Outlined.Search,
@@ -2536,43 +2643,94 @@ private fun MiuixAppsScreen(scrollProgress: MutableState<Float>) {
                 }
             )
         }
+        item(key = "master-switch") {
+            Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                MiuixCard {
+                    MiuixSwitchPref(
+                        title = "仅转发选中的应用",
+                        summary = if (onlyWhitelist) "当前仅转发下方勾选的应用"
+                        else "当前转发全部应用；开启后仅转发下方勾选的应用",
+                        checked = onlyWhitelist
+                    ) {
+                        onlyWhitelist = it
+                        repo.onlyWhitelist = it
+                    }
+                }
+            }
+        }
         item(key = "batch-actions") {
-            MiuixCard {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    top.yukonga.miuix.kmp.basic.Button(
-                        onClick = {
-                            repo.setWhitelistForAll(apps.map { it.pkg }, true)
-                            selected = repo.whitelist
-                            toast(context, "已全部开启")
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("全部开启") }
-                    top.yukonga.miuix.kmp.basic.Button(
-                        onClick = {
-                            repo.setWhitelistForAll(apps.map { it.pkg }, false)
-                            selected = repo.whitelist
-                            toast(context, "已全部关闭")
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("全部关闭") }
+            Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                MiuixCard {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        top.yukonga.miuix.kmp.basic.Button(
+                            onClick = {
+                                repo.setWhitelistForAll(apps.map { it.pkg }, true)
+                                selected = repo.whitelist
+                                toast(context, "已全部开启")
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("全部开启") }
+                        top.yukonga.miuix.kmp.basic.Button(
+                            onClick = {
+                                repo.setWhitelistForAll(apps.map { it.pkg }, false)
+                                selected = repo.whitelist
+                                toast(context, "已全部关闭")
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("全部关闭") }
+                    }
                 }
             }
         }
         if (loading) {
             item(key = "loading") {
                 Box(
-                    Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    Modifier.fillMaxWidth().padding(top = MiuixPageItemSpacing).padding(vertical = 48.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
                 }
             }
+        } else if (sorted.isEmpty()) {
+            item(key = "empty") {
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixCard {
+                        Box(
+                            Modifier.fillMaxWidth().padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "未找到匹配的应用",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                        }
+                    }
+                }
+            }
         } else {
-            items(filtered, key = { it.pkg }) { app ->
-                MiuixCard {
+            // 应用列表为一整个卡片：仅首/尾行保留圆角，中间行直角，行间无间距
+            itemsIndexed(sorted, key = { _, app -> app.pkg }) { index, app ->
+                val isFirst = index == 0
+                val isLast = index == sorted.lastIndex
+                val rowShape = UnevenRoundedRectangle(
+                    topStart = if (isFirst) 16.dp else 0.dp,
+                    topEnd = if (isFirst) 16.dp else 0.dp,
+                    bottomStart = if (isLast) 16.dp else 0.dp,
+                    bottomEnd = if (isLast) 16.dp else 0.dp,
+                    style = RoundedCornerStyle.Continuous
+                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = if (isFirst) MiuixPageItemSpacing else 0.dp)
+                        .padding(horizontal = 12.dp)
+                        .clip(rowShape)
+                        .background(MiuixTheme.colorScheme.surfaceContainer)
+                ) {
                     MiuixSwitchPref(
                         title = app.label,
                         summary = app.pkg,
@@ -2580,7 +2738,7 @@ private fun MiuixAppsScreen(scrollProgress: MutableState<Float>) {
                         startAction = {
                             val bitmap = remember(app.pkg) {
                                 appIconBitmaps.get(app.pkg)
-                                    ?: app.icon?.toBitmap(48, 48)?.asImageBitmap()?.also { appIconBitmaps.put(app.pkg, it) }
+                                    ?: app.icon?.toBitmap(120, 120)?.asImageBitmap()?.also { appIconBitmaps.put(app.pkg, it) }
                             }
                             if (bitmap != null) {
                                 Image(bitmap, null, Modifier.size(40.dp))

@@ -35,6 +35,7 @@ class SettingsRepository private constructor(context: Context) {
         private const val KEY_DEDUPE_REPEAT_ENABLED = "dedupe_repeat_enabled"
         private const val KEY_REFRESH_AS_NEW_ENABLED = "refresh_as_new_enabled"
 private const val KEY_SYNC_REMOVE_ENABLED = "sync_remove_enabled"
+        private const val KEY_APP_SORT_ORDER = "app_sort_order"
         private const val KEY_VERBOSE_LOG_ENABLED = "verbose_log_enabled"
         private const val KEY_UI_STYLE = "ui_style"
         private const val KEY_LIQUID_GLASS_BAR_ENABLED = "liquid_glass_bar_enabled"
@@ -83,6 +84,11 @@ private const val KEY_SYNC_REMOVE_ENABLED = "sync_remove_enabled"
     var refreshAsNewEnabled: Boolean
         get() = prefs.getBoolean(KEY_REFRESH_AS_NEW_ENABLED, false)
         set(v) = prefs.edit().putBoolean(KEY_REFRESH_AS_NEW_ENABLED, v).apply()
+
+    // 应用页排序方式：0=按首字母正序，1=倒序，2=已启用优先，3=未启用优先
+    var appSortOrder: Int
+        get() = prefs.getInt(KEY_APP_SORT_ORDER, 0)
+        set(v) = prefs.edit().putInt(KEY_APP_SORT_ORDER, v).apply()
 
     // 同步通知清除状态（接收端开关）：原机通知被清除时，已流转到本机的通知同步移除，默认关闭
     var syncRemoveEnabled: Boolean
