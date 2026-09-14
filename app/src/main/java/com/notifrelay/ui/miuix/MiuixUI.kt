@@ -558,7 +558,12 @@ private fun MiuixAppContent(
         // 底栏四周全透明；宽度自适应：大屏为屏幕宽度 40% 居中，手机为屏幕宽度 80%
         val barFraction = if (widthSizeClass == WindowWidthSizeClass.Compact) 0.7f else 0.3f
         Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { _ ->
-            Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    // 与页面同色：主内容缩小/模糊时边缘露出的底色不再形成深色线
+                    .background(MiuixTheme.colorScheme.surface)
+            ) {
                 // 主页面组：进入二级页时略微缩小并被渐进模糊覆盖（二级页在采样层外，不受影响）
                 Box(
                     Modifier
@@ -742,7 +747,12 @@ private fun MiuixAppContent(
     } else if (widthSizeClass != WindowWidthSizeClass.Compact) {
         // 大屏：侧边栏视为一级页面的一部分——二级页进入时侧边栏与内容一同被缩小、模糊、压暗，
         // 二级页覆盖层铺满整个屏幕（含侧边栏）。
-        Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                // 与页面同色：主内容缩小/模糊时边缘露出的底色不再形成深色线
+                .background(MiuixTheme.colorScheme.surface)
+        ) {
             Row(Modifier.fillMaxSize()) {
                 // 侧边栏：与主页面一同参与缩小/模糊
                 Box(
@@ -939,7 +949,12 @@ private fun MiuixAppContent(
     } else {
         // 关闭液态玻璃底栏的手机布局：贴底全宽标准导航栏，毛玻璃背景，图层位于内容上方
         Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0)) { _ ->
-            Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    // 与页面同色：主内容缩小/模糊时边缘露出的底色不再形成深色线
+                    .background(MiuixTheme.colorScheme.surface)
+            ) {
                 // 主页面组：进入二级页时略微缩小并被渐进模糊覆盖
                 Box(
                     Modifier
@@ -2428,7 +2443,12 @@ private fun MiuixAboutPage(
                     Column(
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .offset(y = with(density) { (-40).toDp() }),
+                            // logo 与文字整体上移 50px（在居中偏上基础上）并整体放大 20%
+                            .offset(y = with(density) { (-90).toDp() })
+                            .graphicsLayer {
+                                scaleX = 1.2f
+                                scaleY = 1.2f
+                            },
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         GlowMixedContent(
