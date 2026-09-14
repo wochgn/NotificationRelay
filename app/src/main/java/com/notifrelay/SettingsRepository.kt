@@ -230,6 +230,7 @@ private const val KEY_SYNC_REMOVE_ENABLED = "sync_remove_enabled"
             }
         }
 
-    private val whitelist: Set<String>
+    // 白名单快照（应用页用 Compose 状态持有，避免列表项开关不随设置变化刷新）
+    val whitelist: Set<String>
         get() = prefs.getStringSet(KEY_WHITELIST, emptySet()) ?: emptySet()
 }

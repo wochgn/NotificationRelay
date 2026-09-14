@@ -810,11 +810,18 @@ private val appIconBitmaps = LruCache<String, ImageBitmap>(256)
 private fun AppsScreen() {
     val context = LocalContext.current
     val repo = remember { SettingsRepository.get(context) }
-    var onlyWhitelist by rememberSaveable { mutableStateOf(repo.onlyWhitelist) }
+    // 勾选状态由 Compose 状态持有：LazyColumn item 只读取非状态的 repo 属性时不会随设置变化重组
+    var onlyWhitelist by remember { mutableStateOf(repo.onlyWhitelist) }
+    var selected by remember { mutableStateOf(repo.whitelist) }
     var query by rememberSaveable { mutableStateOf("") }
     var apps by remember { mutableStateOf(cachedApps.orEmpty()) }
     var loading by remember { mutableStateOf(cachedApps == null) }
-    var version by remember { mutableIntStateOf(0) }
+
+    LifecycleResumeEffect(Unit) {
+        onlyWhitelist = repo.onlyWhitelist
+        selected = repo.whitelist
+        onPauseOrDispose { }
+    }
 
     LaunchedEffect(Unit) {
         if (cachedApps == null) {
@@ -823,7 +830,6 @@ private fun AppsScreen() {
         apps = cachedApps.orEmpty()
         loading = false
     }
-    @Suppress("UNUSED_EXPRESSION") version
     val filtered = remember(apps, query) {
         if (query.isBlank()) apps else apps.filter {
             it.label.contains(query, true) || it.pkg.contains(query, true)
@@ -856,11 +862,19 @@ private fun AppsScreen() {
         )
         Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = { repo.setWhitelistForAll(apps.map { it.pkg }, true); version++; toast(context, "已全部开启") },
+                onClick = {
+                    repo.setWhitelistForAll(apps.map { it.pkg }, true)
+                    selected = repo.whitelist
+                    toast(context, "已全部开启")
+                },
                 modifier = Modifier.weight(1f)
             ) { Text("全部开启") }
             OutlinedButton(
-                onClick = { repo.setWhitelistForAll(apps.map { it.pkg }, false); version++; toast(context, "已全部关闭") },
+                onClick = {
+                    repo.setWhitelistForAll(apps.map { it.pkg }, false)
+                    selected = repo.whitelist
+                    toast(context, "已全部关闭")
+                },
                 modifier = Modifier.weight(1f)
             ) { Text("全部关闭") }
         }
@@ -869,9 +883,9 @@ private fun AppsScreen() {
         } else {
             LazyColumn(Modifier.fillMaxSize()) {
                 items(filtered, key = { it.pkg }) { app ->
-                    AppRow(app, checked = repo.isAppInWhitelist(app.pkg)) {
+                    AppRow(app, checked = app.pkg in selected) {
                         repo.setAppEnabled(app.pkg, it)
-                        version++
+                        selected = repo.whitelist
                     }
                 }
             }
