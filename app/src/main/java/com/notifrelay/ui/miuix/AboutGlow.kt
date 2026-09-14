@@ -1,17 +1,23 @@
 package com.notifrelay.ui.miuix
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.FloatState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -96,53 +102,73 @@ private fun interpolateGlowColors(palette: GlowPalette, t: Float): List<Color> {
 }
 
 /**
+ * 逐个计算当前时刻的光斑（背景与图标/文字混色共用，保证运动与颜色完全同步）。
+ */
+private inline fun forEachGlowSpot(
+    isDark: Boolean,
+    time: Float,
+    area: Size,
+    radiusMultiplier: Float = 1f,
+    colors: List<Color>? = null,
+    block: (cx: Float, cy: Float, radius: Float, color: Color) -> Unit,
+) {
+    val palette = if (isDark) DarkGlowPalette else LightGlowPalette
+    val currentColors = colors ?: interpolateGlowColors(palette, time)
+    for (i in GLOW_POINTS.indices) {
+        val p = GLOW_POINTS[i]
+        val drx = sin(time * 0.6f + p.y * 3f)
+        val dry = cos(time * 0.5f + p.x * 3f)
+        val dx = (drx + 1f) / 2f
+        val dy = (dry + 1f) / 2f
+        val smoothX = dx * dx * (3f - 2f * dx)
+        val smoothY = dy * dy * (3f - 2f * dy)
+        val px = p.x + smoothX * palette.pointOffset * 2f - palette.pointOffset
+        val py = p.y + smoothY * palette.pointOffset * 2f - palette.pointOffset
+        val pulse = 0.85f + 0.15f * sin(time * 0.4f + i * 1.7f)
+        val radius = p.r * min(area.width, area.height) * 0.9f * pulse * radiusMultiplier
+        block(
+            px * area.width,
+            py * area.height,
+            radius,
+            currentColors[i].copy(alpha = currentColors[i].alpha * palette.alphaMulti)
+        )
+    }
+}
+
+/**
  * 关于页背景彩色流光（参考 HyperAudio/HyperCeiler 关于页）：
  * 4 个彩色光斑在页面上方区域内缓慢摆动（smoothstep 平滑），
  * 颜色按周期循环渐变，半径轻微脉动。
  *
  * @param areaFraction 流光区域占屏幕高度的比例（从屏幕顶部开始）。
- * @param timeState 共享动画时钟。仅在绘制阶段读取，避免每帧重组页面。
+ * @param glowAlpha 透明度获取器，仅在绘制阶段读取，滚动时避免整页重组。
+ * @param timeState 共享动画时钟。
  */
 @Composable
 fun FlowingGlowBackground(
     modifier: Modifier = Modifier,
     areaFraction: Float = 0.5f,
-    glowAlpha: Float = 1f,
+    glowAlpha: () -> Float = { 1f },
     timeState: FloatState,
 ) {
     val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
 
     Canvas(modifier = modifier) {
-        if (glowAlpha <= 0.001f || size.width <= 0f || size.height <= 0f) return@Canvas
+        val alpha = glowAlpha()
+        if (alpha <= 0.001f || size.width <= 0f || size.height <= 0f) return@Canvas
 
         val w = size.width
         val h = size.height
         val areaH = h * areaFraction
         val areaW = min(areaH, w)
         val left = (w - areaW) / 2f
-        val time = timeState.floatValue
-        val palette = if (isDark) DarkGlowPalette else LightGlowPalette
-        val colors = interpolateGlowColors(palette, time)
-        for (i in GLOW_POINTS.indices) {
-            val p = GLOW_POINTS[i]
-            val drx = sin(time * 0.6f + p.y * 3f)
-            val dry = cos(time * 0.5f + p.x * 3f)
-            val dx = (drx + 1f) / 2f
-            val dy = (dry + 1f) / 2f
-            val smoothX = dx * dx * (3f - 2f * dx)
-            val smoothY = dy * dy * (3f - 2f * dy)
-            val px = p.x + smoothX * palette.pointOffset * 2f - palette.pointOffset
-            val py = p.y + smoothY * palette.pointOffset * 2f - palette.pointOffset
-            val pulse = 0.85f + 0.15f * sin(time * 0.4f + i * 1.7f)
-            val radius = p.r * min(areaW, areaH) * 0.9f * pulse
-            val sourceColor = colors[i]
-            val color = sourceColor.copy(alpha = sourceColor.alpha * palette.alphaMulti * glowAlpha)
-            val center = Offset(left + px * areaW, py * areaH)
+        forEachGlowSpot(isDark, timeState.floatValue, Size(areaW, areaH)) { cx, cy, radius, color ->
+            val center = Offset(left + cx, cy)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        color.copy(alpha = color.alpha * 0.8f),
-                        color.copy(alpha = color.alpha * 0.45f),
+                        color.copy(alpha = color.alpha * alpha * 0.8f),
+                        color.copy(alpha = color.alpha * alpha * 0.45f),
                         Color.Transparent,
                     ),
                     center = center,
@@ -153,4 +179,102 @@ fun FlowingGlowBackground(
             )
         }
     }
+}
+
+/**
+ * 对内容（应用图标/文字）叠加与背景流光同步的渐变换色与光斑层，
+ * 参考 HyperAudio 关于页的 logo/文字混色效果。
+ */
+@Composable
+fun GlowMixedContent(
+    modifier: Modifier = Modifier,
+    timeState: FloatState,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val isDark = MiuixTheme.colorScheme.background.luminance() < 0.5f
+    Box(
+        modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    ) {
+        content()
+        Canvas(Modifier.matchParentSize()) {
+            if (size.width <= 0f || size.height <= 0f) return@Canvas
+            val time = timeState.floatValue
+            val palette = if (isDark) DarkGlowPalette else LightGlowPalette
+            val paletteColors = interpolateGlowColors(palette, time)
+            val baseColors = paletteColors + paletteColors.first()
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val len = max(size.width, size.height) * 1.5f
+            val ang = time * 0.9f
+            val cosA = cos(ang)
+            val sinA = sin(ang)
+            val start = Offset(cx - cosA * len, cy - sinA * len)
+            val end = Offset(cx + cosA * len, cy + sinA * len)
+            if (!isDark) {
+                // 浅色：线性扫掠 + 反向叠加（对比度更高）
+                val tinted = baseColors.map {
+                    contrast(darken(saturate(it, 0.5f), 0.5f), 2.4f).copy(alpha = 1f)
+                }
+                drawRect(
+                    brush = Brush.linearGradient(colors = tinted, start = start, end = end),
+                    blendMode = BlendMode.SrcIn
+                )
+                drawRect(
+                    brush = Brush.linearGradient(colors = tinted, start = end, end = start),
+                    blendMode = BlendMode.SrcAtop
+                )
+            } else {
+                // 深色：仅提对比度 + 轻微白色提亮
+                val tinted = baseColors.map { contrast(it, 2f).copy(alpha = 0.7f) }
+                drawRect(
+                    brush = Brush.linearGradient(colors = tinted, start = start, end = end),
+                    blendMode = BlendMode.SrcIn
+                )
+                drawRect(Color.White.copy(alpha = 0.22f), blendMode = BlendMode.SrcAtop)
+            }
+            // 与背景流光同源的光斑层
+            val radiusMultiplier = max(size.width, size.height) / min(size.width, size.height) * 0.45f
+            val spotContrast = if (isDark) 2f else 2.4f
+            forEachGlowSpot(isDark, time, size, radiusMultiplier) { x, y, radius, color ->
+                val sc = if (isDark) contrast(color, spotContrast) else contrast(darken(saturate(color, 0.5f), 0.5f), spotContrast)
+                val center = Offset(x, y)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            sc.copy(alpha = 0.35f),
+                            sc.copy(alpha = 0.175f),
+                            Color.Transparent,
+                        ),
+                        center = center,
+                        radius = radius,
+                    ),
+                    radius = radius,
+                    center = center,
+                    blendMode = BlendMode.SrcAtop,
+                )
+            }
+        }
+    }
+}
+
+/** 提升颜色饱和度：将颜色推向纯色方向（保持明度与色相不变）。 */
+private fun saturate(c: Color, amount: Float): Color {
+    val l = c.luminance()
+    return Color(
+        (c.red + (c.red - l) * amount).coerceIn(0f, 1f),
+        (c.green + (c.green - l) * amount).coerceIn(0f, 1f),
+        (c.blue + (c.blue - l) * amount).coerceIn(0f, 1f),
+        c.alpha,
+    )
+}
+
+/** 降低明度：整体压暗（RGB 等比缩小）。 */
+private fun darken(c: Color, factor: Float): Color {
+    return Color(c.red * factor, c.green * factor, c.blue * factor, c.alpha)
+}
+
+/** 提升对比度：以 0.5 为中心拉大色差（亮处更亮、暗处更暗）。 */
+private fun contrast(c: Color, amount: Float): Color {
+    fun push(v: Float): Float = ((v - 0.5f) * amount + 0.5f).coerceIn(0f, 1f)
+    return Color(push(c.red), push(c.green), push(c.blue), c.alpha)
 }

@@ -1278,7 +1278,7 @@ private fun MaterialAboutPage(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 24.dp),
+                            .padding(top = 19.dp, bottom = 24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Image(
@@ -1307,7 +1307,8 @@ private fun MaterialAboutPage(
                         text = "作者",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp)
+                        // 与卡片内文字左对齐（页边距 20dp + 卡片内边距 16dp）
+                        modifier = Modifier.padding(start = 36.dp, top = 8.dp, bottom = 8.dp)
                     )
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -1323,6 +1324,15 @@ private fun MaterialAboutPage(
                                 openUrl(context, "https://github.com/wochgn")
                             }
                         )
+                        ListItem(
+                            headlineContent = { Text("ArboRain") },
+                            supportingContent = { Text("GitHub") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/ArboRain")
+                            }
+                        )
                     }
                 }
                 item(key = "md3-about-links") {
@@ -1330,7 +1340,7 @@ private fun MaterialAboutPage(
                         text = "链接",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp)
+                        modifier = Modifier.padding(start = 36.dp, top = 16.dp, bottom = 8.dp)
                     )
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -1353,40 +1363,53 @@ private fun MaterialAboutPage(
                         text = "开源组件",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 8.dp)
+                        modifier = Modifier.padding(start = 36.dp, top = 16.dp, bottom = 8.dp)
                     )
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                     ) {
-                        Column {
-                            Md3AboutInfoRow("Miuix", "HyperOS 风格 Compose UI 组件库")
-                            Md3AboutInfoRow("Kyant Backdrop", "毛玻璃与液态玻璃效果")
-                            Md3AboutInfoRow("Kyant Shapes", "连续曲率（G2）圆角")
-                            Md3AboutInfoRow("KernelSU", "设计参考", last = true)
-                        }
+                        ListItem(
+                            headlineContent = { Text("Miuix") },
+                            supportingContent = { Text("HyperOS 风格 Compose UI 组件库") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/compose-miuix-ui/miuix")
+                            }
+                        )
+                        ListItem(
+                            headlineContent = { Text("Kyant Backdrop") },
+                            supportingContent = { Text("毛玻璃与液态玻璃效果") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/Kyant0/AndroidLiquidGlass")
+                            }
+                        )
+                        ListItem(
+                            headlineContent = { Text("Kyant Shapes") },
+                            supportingContent = { Text("连续曲率（G2）圆角") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/Kyant0/Shapes")
+                            }
+                        )
+                        ListItem(
+                            headlineContent = { Text("KernelSU") },
+                            supportingContent = { Text("设计参考") },
+                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                openUrl(context, "https://github.com/tiann/KernelSU")
+                            }
+                        )
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun Md3AboutInfoRow(title: String, summary: String, last: Boolean = false) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (last) 16.dp else 0.dp)
-    ) {
-        Text(text = title, style = MaterialTheme.typography.bodyLarge)
-        Text(
-            text = summary,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp, bottom = if (last) 0.dp else 12.dp)
-        )
     }
 }
 

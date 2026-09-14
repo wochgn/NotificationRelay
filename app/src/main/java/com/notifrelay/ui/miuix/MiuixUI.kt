@@ -2232,8 +2232,6 @@ private fun MiuixAboutPage(
             }
         }
     }
-    val sp = scrollProgress.value
-
     Box(
         modifier
             .fillMaxSize()
@@ -2253,7 +2251,8 @@ private fun MiuixAboutPage(
         FlowingGlowBackground(
             modifier = Modifier.fillMaxSize(),
             areaFraction = 0.5f,
-            glowAlpha = 1f - sp,
+            // 在绘制阶段读取，滚动时不做整页重组
+            glowAlpha = { (1f - scrollProgress.value).coerceIn(0f, 1f) },
             timeState = glowTime
         )
         LazyColumn(
@@ -2270,28 +2269,40 @@ private fun MiuixAboutPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .fillParentMaxHeight(0.5f)
+                        .offset(y = (-5).dp)
                         .graphicsLayer {
-                            val s = 1f - sp * 0.1f
+                            // 绘制阶段读取滚动进度，避免每帧重组整页
+                            val spv = scrollProgress.value
+                            val s = 1f - spv * 0.1f
                             scaleX = s
                             scaleY = s
-                            alpha = (1f - sp * 1.3f).coerceIn(0f, 1f)
+                            alpha = (1f - spv * 1.3f).coerceIn(0f, 1f)
                         },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Image(
-                        painter = painterResource(
-                            if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
-                        ),
-                        contentDescription = "应用图标",
-                        modifier = Modifier.fillMaxWidth(0.38f).aspectRatio(1f)
-                    )
-                    Text(
-                        text = "NotificationRelay",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 16.dp)
-                    )
+                    GlowMixedContent(
+                        modifier = Modifier.fillMaxWidth(0.38f).aspectRatio(1f),
+                        timeState = glowTime
+                    ) {
+                        Image(
+                            painter = painterResource(
+                                if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
+                            ),
+                            contentDescription = "应用图标",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    GlowMixedContent(
+                        modifier = Modifier.padding(top = 16.dp),
+                        timeState = glowTime
+                    ) {
+                        Text(
+                            text = "NotificationRelay",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Text(
                         text = versionName,
                         style = MiuixTheme.textStyles.footnote1,
@@ -2301,32 +2312,66 @@ private fun MiuixAboutPage(
                 }
             }
             item(key = "about-author") {
-                MiuixSectionTitle("作者")
-                MiuixCard {
-                    top.yukonga.miuix.kmp.preference.ArrowPreference(
-                        title = "wochgn",
-                        summary = "GitHub",
-                        onClick = { openUrl(context, "https://github.com/wochgn") }
-                    )
+                // 类别标题上下与卡片的间距与设置页一致（spacedBy + 标题内边距）
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixSectionTitle("作者")
+                }
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixCard {
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "wochgn",
+                            summary = "GitHub",
+                            onClick = { openUrl(context, "https://github.com/wochgn") }
+                        )
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "ArboRain",
+                            summary = "GitHub",
+                            onClick = { openUrl(context, "https://github.com/ArboRain") }
+                        )
+                    }
                 }
             }
             item(key = "about-links") {
-                MiuixSectionTitle("链接")
-                MiuixCard {
-                    top.yukonga.miuix.kmp.preference.ArrowPreference(
-                        title = "GitHub 仓库",
-                        summary = "查看源码与更新",
-                        onClick = { openUrl(context, "https://github.com/wochgn/NotificationRelay") }
-                    )
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixSectionTitle("链接")
+                }
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixCard {
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "GitHub 仓库",
+                            summary = "查看源码与更新",
+                            onClick = { openUrl(context, "https://github.com/wochgn/NotificationRelay") }
+                        )
+                    }
                 }
             }
             item(key = "about-opensource") {
-                MiuixSectionTitle("开源组件")
-                MiuixCard {
-                    MiuixAboutInfoRow("Miuix", "HyperOS 风格 Compose UI 组件库")
-                    MiuixAboutInfoRow("Kyant Backdrop", "毛玻璃与液态玻璃效果")
-                    MiuixAboutInfoRow("Kyant Shapes", "连续曲率（G2）圆角")
-                    MiuixAboutInfoRow("KernelSU", "设计参考", last = true)
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixSectionTitle("开源组件")
+                }
+                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                    MiuixCard {
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "Miuix",
+                            summary = "HyperOS 风格 Compose UI 组件库",
+                            onClick = { openUrl(context, "https://github.com/compose-miuix-ui/miuix") }
+                        )
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "Kyant Backdrop",
+                            summary = "毛玻璃与液态玻璃效果",
+                            onClick = { openUrl(context, "https://github.com/Kyant0/AndroidLiquidGlass") }
+                        )
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "Kyant Shapes",
+                            summary = "连续曲率（G2）圆角",
+                            onClick = { openUrl(context, "https://github.com/Kyant0/Shapes") }
+                        )
+                        top.yukonga.miuix.kmp.preference.ArrowPreference(
+                            title = "KernelSU",
+                            summary = "设计参考",
+                            onClick = { openUrl(context, "https://github.com/tiann/KernelSU") }
+                        )
+                    }
                 }
             }
         }
@@ -2353,25 +2398,6 @@ private fun MiuixAboutPage(
                 )
             }
         }
-    }
-}
-
-/** 关于页开源组件行：标题 + 说明（不可点击）。 */
-@Composable
-private fun MiuixAboutInfoRow(title: String, summary: String, last: Boolean = false) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(top = 12.dp, bottom = if (last) 12.dp else 0.dp)
-    ) {
-        Text(text = title, fontWeight = FontWeight.Medium)
-        Text(
-            text = summary,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
-        )
     }
 }
 
