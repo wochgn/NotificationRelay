@@ -222,6 +222,8 @@ private val miuixTabs = listOf(
 )
 
 private val MiuixPageItemSpacing = 5.6.dp
+// 应用页卡片间距：与设备页「已连接设备」卡片一致（spacedBy + 0.42 倍补偿 = 1.42 倍）
+private val MiuixAppsCardSpacing = MiuixPageItemSpacing * 1.42f
 
 /** G2 连续曲率卡片圆角。 */
 private val MiuixCardShape = RoundedRectangle(16.dp, RoundedCornerStyle.Continuous)
@@ -473,7 +475,8 @@ private fun MiuixAppContent(
     // 应用页顶栏操作：搜索（搜索框被顶栏遮住时出现）+ 排序
     val appsTopBarActions: (@Composable RowScope.() -> Unit)? = if (currentTab == "apps") {
         {
-            if (appsSearchHidden) {
+            // 搜索按钮淡入淡出
+            AnimatedVisibility(visible = appsSearchHidden, enter = fadeIn(), exit = fadeOut()) {
                 IconButton(onClick = { appsScrollToSearch++ }) {
                     Icon(
                         imageVector = Icons.Rounded.Search,
@@ -1489,6 +1492,28 @@ private data class MiuixDeviceUi(
     val discovery: DiscoveryState
 )
 
+/**
+ * 蓝牙是否可用：需同时具备 BLUETOOTH_CONNECT/SCAN/ADVERTISE 权限且系统蓝牙已开启。
+ * 部分 ROM（如 HyperOS）在权限被拒时 adapter.isEnabled 仍返回 true，
+ * 会导致「蓝牙权限」始终显示已开启，因此必须先检查权限。
+ */
+private fun bluetoothReady(context: Context): Boolean {
+    val granted = listOf(
+        android.Manifest.permission.BLUETOOTH_CONNECT,
+        android.Manifest.permission.BLUETOOTH_SCAN,
+        android.Manifest.permission.BLUETOOTH_ADVERTISE
+    ).all {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, it) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    if (!granted) return false
+    return try {
+        (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.isEnabled == true
+    } catch (_: SecurityException) {
+        false
+    }
+}
+
 @Composable
 private fun MiuixDevicesScreen(
     manager: BleRelayManager,
@@ -1515,11 +1540,10 @@ private fun MiuixDevicesScreen(
     val pairDialogExitProgress = remember { Animatable(0f) }
 
     fun snapshot(): MiuixDeviceUi {
-        val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val state = manager.currentState()
         return MiuixDeviceUi(
             state.peers,
-            bluetooth.adapter?.isEnabled == true,
+            bluetoothReady(context),
             NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName),
             repo.foregroundEnabled,
             discovery
@@ -1927,10 +1951,7 @@ private fun MiuixStatusDetailPage(visible: Boolean, onBack: () -> Unit, modifier
             context.unregisterReceiver(btReceiver)
         }
     }
-    val bluetoothEnabled = remember(refresh) {
-        val bluetooth = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        bluetooth?.adapter?.isEnabled == true
-    }
+    val bluetoothEnabled = remember(refresh) { bluetoothReady(context) }
     val listenerEnabled = remember(refresh) {
         NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
     }
@@ -2651,7 +2672,7 @@ private fun MiuixAppsScreen(
             )
         }
         item(key = "master-switch") {
-            Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+            Box(Modifier.padding(top = MiuixAppsCardSpacing)) {
                 MiuixCard {
                     MiuixSwitchPref(
                         title = "仅转发选中的应用",
@@ -2663,6 +2684,12 @@ private fun MiuixAppsScreen(
                         repo.onlyWhitelist = it
                     }
                 }
+            }
+        }
+        // 「APP列表」类别标题：间距与设置页「通知增强」上下卡片一致（spacedBy + 标题内边距）
+        item(key = "apps-list-title") {
+            Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                MiuixSectionTitle("APP列表")
             }
         }
         item(key = "batch-actions") {
@@ -2678,6 +2705,8 @@ private fun MiuixAppsScreen(
                                 selected = repo.whitelist
                                 toast(context, "已全部开启")
                             },
+                            // 未开启「仅转发选中的应用」时不可操作
+                            enabled = onlyWhitelist,
                             modifier = Modifier.weight(1f)
                         ) { Text("全部开启") }
                         top.yukonga.miuix.kmp.basic.Button(
@@ -2686,6 +2715,7 @@ private fun MiuixAppsScreen(
                                 selected = repo.whitelist
                                 toast(context, "已全部关闭")
                             },
+                            enabled = onlyWhitelist,
                             modifier = Modifier.weight(1f)
                         ) { Text("全部关闭") }
                     }
@@ -2695,7 +2725,7 @@ private fun MiuixAppsScreen(
         if (loading) {
             item(key = "loading") {
                 Box(
-                    Modifier.fillMaxWidth().padding(top = MiuixPageItemSpacing).padding(vertical = 48.dp),
+                    Modifier.fillMaxWidth().padding(top = MiuixAppsCardSpacing).padding(vertical = 48.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
@@ -2703,7 +2733,7 @@ private fun MiuixAppsScreen(
             }
         } else if (sorted.isEmpty()) {
             item(key = "empty") {
-                Box(Modifier.padding(top = MiuixPageItemSpacing)) {
+                Box(Modifier.padding(top = MiuixAppsCardSpacing)) {
                     MiuixCard {
                         Box(
                             Modifier.fillMaxWidth().padding(24.dp),
@@ -2733,7 +2763,7 @@ private fun MiuixAppsScreen(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .padding(top = if (isFirst) MiuixPageItemSpacing else 0.dp)
+                        .padding(top = if (isFirst) MiuixAppsCardSpacing else 0.dp)
                         .padding(horizontal = 12.dp)
                         .clip(rowShape)
                         .background(MiuixTheme.colorScheme.surfaceContainer)
@@ -2742,20 +2772,26 @@ private fun MiuixAppsScreen(
                         title = app.label,
                         summary = app.pkg,
                         checked = app.pkg in selected,
+                        // 未开启「仅转发选中的应用」时整行置灰不可点击（保留已勾选记录）
+                        enabled = onlyWhitelist,
                         startAction = {
                             val bitmap = remember(app.pkg) {
                                 appIconBitmaps.get(app.pkg)
                                     ?: app.icon?.toBitmap(120, 120)?.asImageBitmap()?.also { appIconBitmaps.put(app.pkg, it) }
                             }
-                            if (bitmap != null) {
-                                Image(bitmap, null, Modifier.size(40.dp))
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Outlined.Apps,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(40.dp),
-                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                )
+                            Box(
+                                Modifier.graphicsLayer { alpha = if (onlyWhitelist) 1f else 0.4f }
+                            ) {
+                                if (bitmap != null) {
+                                    Image(bitmap, null, Modifier.size(40.dp))
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Apps,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(40.dp),
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
                             }
                         }
                     ) { checked ->
@@ -3087,6 +3123,7 @@ private fun MiuixSwitchPref(
     title: String,
     summary: String,
     checked: Boolean,
+    enabled: Boolean = true,
     startAction: @Composable (() -> Unit)? = null,
     onChange: (Boolean) -> Unit
 ) {
@@ -3094,6 +3131,7 @@ private fun MiuixSwitchPref(
         title = title,
         summary = summary,
         checked = checked,
+        enabled = enabled,
         startAction = startAction,
         onCheckedChange = onChange
     )
