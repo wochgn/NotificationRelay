@@ -47,7 +47,7 @@ android {
         // 版本名格式：大版本号(重大更新/API变更).小版本号(功能增加/重大优化).小版本号(bug修复/普通优化).版本码
         // 版本码（VersionCode）为构建日期，格式 yymmdd
         versionCode = SimpleDateFormat("yyMMdd", Locale.US).format(Date()).toInt()
-        versionName = "1.13.0.$versionCode"
+        versionName = "1.13.1.$versionCode"
     }
 
     buildTypes {

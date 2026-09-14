@@ -948,7 +948,7 @@ private fun AppsScreen(sortOrder: Int = 0) {
     // 排序方式：首字母正序/倒序、已启用优先、未启用优先
     val sorted = remember(filtered, sortOrder, selected) {
         when (sortOrder) {
-            1 -> filtered.sortedWith(compareByDescending(AppLabelComparator) { it.label })
+            1 -> filtered.sortedWith(compareBy(AppLabelComparator) { it.label }).reversed()
             2 -> filtered.sortedWith(
                 compareByDescending<AppInfo> { it.pkg in selected }
                     .thenBy(AppLabelComparator) { it.label }

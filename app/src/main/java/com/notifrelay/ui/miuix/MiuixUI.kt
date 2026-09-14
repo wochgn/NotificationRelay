@@ -1885,7 +1885,8 @@ private fun MiuixDevicesScreen(
                     Column(Modifier.weight(1f)) {
                         MiuixSectionTitle("已配对设备")
                         savedRows.forEachIndexed { index, row ->
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                            // 与「已连接设备」卡片间距一致
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
                                 MiuixSavedDeviceCard(
                                     name = row.name.ifBlank { "未知设备" },
                                     deviceId = row.id,
@@ -1905,7 +1906,8 @@ private fun MiuixDevicesScreen(
                             onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                         )
                         nearbyRows.forEachIndexed { index, row ->
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                            // 与「已连接设备」卡片间距一致
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
                                 MiuixCard {
                                     MiuixDeviceRow(manager, row, {})
                                 }
@@ -2415,7 +2417,8 @@ private fun MiuixAboutPage(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         GlowMixedContent(
-                            modifier = Modifier.fillMaxWidth(0.55f).aspectRatio(1f),
+                            // 与 MD3 大屏一致的 logo 尺寸
+                            modifier = Modifier.size(140.dp),
                             timeState = glowTime
                         ) {
                             Image(
@@ -2426,24 +2429,30 @@ private fun MiuixAboutPage(
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
-                        GlowMixedContent(
-                            modifier = Modifier.padding(top = nameGap),
-                            timeState = glowTime
+                        // 名称与版本作为一组，整体较默认位置再上移 50px
+                        Column(
+                            modifier = Modifier.offset(y = with(density) { (-50).toDp() }),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            GlowMixedContent(
+                                modifier = Modifier.padding(top = nameGap),
+                                timeState = glowTime
+                            ) {
+                                Text(
+                                    text = "NotificationRelay",
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    // 留出少量边距，避免离屏混色层裁切文字右缘
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
                             Text(
-                                text = "NotificationRelay",
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                // 留出少量边距，避免离屏混色层裁切文字右缘
-                                modifier = Modifier.padding(horizontal = 4.dp)
+                                text = versionName,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(top = 6.dp)
                             )
                         }
-                        Text(
-                            text = versionName,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
                     }
                 }
                 LazyColumn(
@@ -3063,7 +3072,7 @@ private fun MiuixAppsScreen(
     // 排序方式：首字母正序/倒序、已启用优先、未启用优先
     val sorted = remember(filtered, sortOrder, selected) {
         when (sortOrder) {
-            1 -> filtered.sortedWith(compareByDescending(AppLabelComparator) { it.label })
+            1 -> filtered.sortedWith(compareBy(AppLabelComparator) { it.label }).reversed()
             2 -> filtered.sortedWith(
                 compareByDescending<MiuixAppInfo> { it.pkg in selected }
                     .thenBy(AppLabelComparator) { it.label }
