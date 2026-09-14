@@ -751,7 +751,7 @@ private fun DevicesScreen(manager: BleRelayManager, wideLayout: Boolean) {
 @Composable
 private fun ScanButton(state: DeviceUiState, manager: BleRelayManager) {
     Button(
-        onClick = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
+        onClick = { manager.refreshDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) },
         enabled = !state.discovery.scanning,
         modifier = Modifier.fillMaxWidth()
     ) {

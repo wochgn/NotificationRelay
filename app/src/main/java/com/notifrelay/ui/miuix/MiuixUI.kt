@@ -1950,7 +1950,7 @@ private fun MiuixDevicesScreen(
                     Column(Modifier.weight(1f)) {
                         MiuixNearbyHeader(
                             scanning = state.discovery.scanning,
-                            onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
+                            onRefresh = { manager.refreshDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                         )
                         nearbyRows.forEachIndexed { index, row ->
                             // 卡片间距与设置页「调试与日志」类别一致（MiuixAppsCardSpacing）
@@ -1987,7 +1987,7 @@ private fun MiuixDevicesScreen(
             item(key = "nearby-header") {
                 MiuixNearbyHeader(
                     scanning = state.discovery.scanning,
-                    onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
+                    onRefresh = { manager.refreshDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                 )
             }
             nearbyRows.forEachIndexed { index, row ->

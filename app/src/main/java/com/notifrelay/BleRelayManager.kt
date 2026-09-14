@@ -462,6 +462,17 @@ class BleRelayManager private constructor(context: Context) {
         ensureScanning()
     }
 
+    /**
+     * 刷新附近设备：先清空本轮扫描结果，再重新扫描（不影响广播与已建立连接）。
+     * 用于「刷新」入口：不保留旧结果，重新给出一轮扫描结果。
+     */
+    fun refreshDiscovery(autoConnectSaved: Boolean = true) {
+        synchronized(discoveredDevices) { discoveredDevices.clear() }
+        notifyDiscovery()
+        stopScanning()
+        startDiscovery(autoConnectSaved)
+    }
+
     private fun ensureAdvertising() {
         advertisingRequested = true
         if (gattServer == null) {
