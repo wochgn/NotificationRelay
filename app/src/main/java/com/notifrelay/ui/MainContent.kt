@@ -41,9 +41,12 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -394,6 +397,7 @@ fun RelayMainContent(
         // 关于页：自右向左覆盖进入
         MaterialAboutPage(
             visible = showAbout,
+            wide = widthSizeClass != WindowWidthSizeClass.Compact,
             onBack = { showAbout = false },
             modifier = Modifier
                 .fillMaxSize()
@@ -1297,6 +1301,7 @@ private fun toast(context: Context, message: String) {
 @Composable
 private fun MaterialAboutPage(
     visible: Boolean,
+    wide: Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1310,6 +1315,149 @@ private fun MaterialAboutPage(
         }
     }
     val listState = rememberLazyListState()
+
+    @Composable
+    fun hero(
+        logoSize: androidx.compose.ui.unit.Dp,
+        topPadding: androidx.compose.ui.unit.Dp,
+        bottomPadding: androidx.compose.ui.unit.Dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = topPadding, bottom = bottomPadding),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(
+                    if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
+                ),
+                contentDescription = "应用图标",
+                modifier = Modifier.size(logoSize)
+            )
+            Text(
+                text = "NotificationRelay",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            Text(
+                text = versionName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+
+    fun LazyListScope.aboutSections() {
+        item(key = "md3-about-author") {
+            Text(
+                text = "作者",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                // 与卡片内文字左对齐（页边距 20dp + 卡片内边距 16dp）
+                modifier = Modifier.padding(start = 36.dp, top = 8.dp, bottom = 8.dp)
+            )
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+            ) {
+                ListItem(
+                    headlineContent = { Text("wochgn") },
+                    supportingContent = { Text("GitHub") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/wochgn")
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("ArboRain") },
+                    supportingContent = { Text("GitHub") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/ArboRain")
+                    }
+                )
+            }
+        }
+        item(key = "md3-about-links") {
+            Text(
+                text = "链接",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 36.dp, top = 16.dp, bottom = 8.dp)
+            )
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+            ) {
+                ListItem(
+                    headlineContent = { Text("GitHub 仓库") },
+                    supportingContent = { Text("查看源码与更新") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/wochgn/NotificationRelay")
+                    }
+                )
+            }
+        }
+        item(key = "md3-about-opensource") {
+            Text(
+                text = "开源组件",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 36.dp, top = 16.dp, bottom = 8.dp)
+            )
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+            ) {
+                ListItem(
+                    headlineContent = { Text("Miuix") },
+                    supportingContent = { Text("HyperOS 风格 Compose UI 组件库") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/compose-miuix-ui/miuix")
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("Kyant Backdrop") },
+                    supportingContent = { Text("毛玻璃与液态玻璃效果") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/Kyant0/AndroidLiquidGlass")
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("Kyant Shapes") },
+                    supportingContent = { Text("连续曲率（G2）圆角") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/Kyant0/Shapes")
+                    }
+                )
+                ListItem(
+                    headlineContent = { Text("KernelSU") },
+                    supportingContent = { Text("设计参考") },
+                    trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        openUrl(context, "https://github.com/tiann/KernelSU")
+                    }
+                )
+            }
+        }
+    }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Box(
@@ -1326,162 +1474,68 @@ private fun MaterialAboutPage(
                     }
                 }
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp)
-            ) {
-                item(key = "md3-about-topbar") {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .height(64.dp)
-                    ) {
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
+            if (wide) {
+                // 大屏：左右分栏。左栏居中偏上放图标/名称/版本，右栏为类别与卡片
+                val wideTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 24.dp
+                Row(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                        Column(
+                            modifier = Modifier.offset(y = (-40).dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "返回"
-                            )
+                            hero(logoSize = 140.dp, topPadding = 0.dp, bottomPadding = 0.dp)
                         }
                     }
-                }
-                item(key = "md3-about-hero") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 19.dp, bottom = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentPadding = PaddingValues(top = wideTopInset, bottom = 32.dp)
                     ) {
-                        Image(
-                            painter = painterResource(
-                                if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
-                            ),
-                            contentDescription = "应用图标",
-                            modifier = Modifier.size(112.dp)
-                        )
-                        Text(
-                            text = "NotificationRelay",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 16.dp)
-                        )
-                        Text(
-                            text = versionName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp)
+                        aboutSections()
+                    }
+                }
+                // 顶栏返回按钮（覆盖在左栏左上角）
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .padding(start = 4.dp)
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回"
                         )
                     }
                 }
-                item(key = "md3-about-author") {
-                    Text(
-                        text = "作者",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        // 与卡片内文字左对齐（页边距 20dp + 卡片内边距 16dp）
-                        modifier = Modifier.padding(start = 36.dp, top = 8.dp, bottom = 8.dp)
-                    )
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-                    ) {
-                        ListItem(
-                            headlineContent = { Text("wochgn") },
-                            supportingContent = { Text("GitHub") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/wochgn")
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 32.dp)
+                ) {
+                    item(key = "md3-about-topbar") {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding()
+                                .height(64.dp)
+                        ) {
+                            IconButton(
+                                onClick = onBack,
+                                modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "返回"
+                                )
                             }
-                        )
-                        ListItem(
-                            headlineContent = { Text("ArboRain") },
-                            supportingContent = { Text("GitHub") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/ArboRain")
-                            }
-                        )
+                        }
                     }
-                }
-                item(key = "md3-about-links") {
-                    Text(
-                        text = "链接",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 36.dp, top = 16.dp, bottom = 8.dp)
-                    )
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-                    ) {
-                        ListItem(
-                            headlineContent = { Text("GitHub 仓库") },
-                            supportingContent = { Text("查看源码与更新") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/wochgn/NotificationRelay")
-                            }
-                        )
+                    item(key = "md3-about-hero") {
+                        hero(logoSize = 112.dp, topPadding = 19.dp, bottomPadding = 24.dp)
                     }
-                }
-                item(key = "md3-about-opensource") {
-                    Text(
-                        text = "开源组件",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 36.dp, top = 16.dp, bottom = 8.dp)
-                    )
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
-                    ) {
-                        ListItem(
-                            headlineContent = { Text("Miuix") },
-                            supportingContent = { Text("HyperOS 风格 Compose UI 组件库") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/compose-miuix-ui/miuix")
-                            }
-                        )
-                        ListItem(
-                            headlineContent = { Text("Kyant Backdrop") },
-                            supportingContent = { Text("毛玻璃与液态玻璃效果") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/Kyant0/AndroidLiquidGlass")
-                            }
-                        )
-                        ListItem(
-                            headlineContent = { Text("Kyant Shapes") },
-                            supportingContent = { Text("连续曲率（G2）圆角") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/Kyant0/Shapes")
-                            }
-                        )
-                        ListItem(
-                            headlineContent = { Text("KernelSU") },
-                            supportingContent = { Text("设计参考") },
-                            trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            modifier = Modifier.clickable {
-                                openUrl(context, "https://github.com/tiann/KernelSU")
-                            }
-                        )
-                    }
+                    aboutSections()
                 }
             }
         }

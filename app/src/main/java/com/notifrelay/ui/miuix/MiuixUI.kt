@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -450,6 +451,7 @@ private fun MiuixAppContent(
                     "devices" -> MiuixDevicesScreen(
                         manager,
                         deviceScrollProgress,
+                        wide = widthSizeClass != WindowWidthSizeClass.Compact,
                         onOpenStatusPage = { showStatusPage.value = true },
                         onOpenDevicePage = { deviceId, name ->
                             devicePagePeerId = deviceId
@@ -700,6 +702,7 @@ private fun MiuixAppContent(
                 // 关于页：与设备详情页一致的转场
                 MiuixAboutPage(
                     visible = showAboutPage.value,
+                    wide = widthSizeClass != WindowWidthSizeClass.Compact,
                     scrollProgress = aboutScrollProgress,
                     onBack = { showAboutPage.value = false },
                     modifier = Modifier
@@ -851,6 +854,28 @@ private fun MiuixAppContent(
                     .fillMaxSize()
                     .graphicsLayer {
                         translationX = size.width * (1f - devicePageProgress.value)
+                        val pd = dialogProgress.value
+                        scaleX = 1f - 0.06f * pd
+                        scaleY = 1f - 0.06f * pd
+                        renderEffect = if (pd > 0.01f) {
+                            val r = 12.dp.toPx() * pd
+                            BlurEffect(r, r, TileMode.Clamp)
+                        } else {
+                            null
+                        }
+                    }
+                    .clip(RoundedCornerShape(topStart = deviceCornerDp, bottomStart = deviceCornerDp))
+            )
+            // 关于页：与设备详情页一致的转场
+            MiuixAboutPage(
+                visible = showAboutPage.value,
+                wide = widthSizeClass != WindowWidthSizeClass.Compact,
+                scrollProgress = aboutScrollProgress,
+                onBack = { showAboutPage.value = false },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = size.width * (1f - aboutPageProgress.value)
                         val pd = dialogProgress.value
                         scaleX = 1f - 0.06f * pd
                         scaleY = 1f - 0.06f * pd
@@ -1089,6 +1114,7 @@ private fun MiuixAppContent(
                 // 关于页：与设备详情页一致的转场
                 MiuixAboutPage(
                     visible = showAboutPage.value,
+                    wide = widthSizeClass != WindowWidthSizeClass.Compact,
                     scrollProgress = aboutScrollProgress,
                     onBack = { showAboutPage.value = false },
                     modifier = Modifier
@@ -1600,6 +1626,7 @@ private fun bluetoothReady(context: Context): Boolean {
 private fun MiuixDevicesScreen(
     manager: BleRelayManager,
     scrollProgress: MutableState<Float>,
+    wide: Boolean,
     onOpenStatusPage: () -> Unit,
     onOpenDevicePage: (String, String) -> Unit,
     onDeleteRequest: (String) -> Unit,
@@ -1851,38 +1878,76 @@ private fun MiuixDevicesScreen(
             )
             }
         }
-        if (savedRows.isNotEmpty()) {
-            item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
-            savedRows.forEachIndexed { index, row ->
-                item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
-                    // 已配对设备卡片之间间距在基础上再增加 35%
-                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
-                        MiuixSavedDeviceCard(
-                            name = row.name.ifBlank { "未知设备" },
-                            deviceId = row.id,
-                            address = row.address,
-                            onConnect = {
-                                if (row.address.isNotBlank()) manager.connectTo(row.address)
-                                else manager.connectToSaved(row.id)
-                            },
-                            onClick = { onOpenDevicePage(row.id, row.name) }
+        if (wide) {
+            // 大屏：已配对设备（左）与附近可用设备（右）分栏
+            item(key = "wide-device-columns") {
+                Row(Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        MiuixSectionTitle("已配对设备")
+                        savedRows.forEachIndexed { index, row ->
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                                MiuixSavedDeviceCard(
+                                    name = row.name.ifBlank { "未知设备" },
+                                    deviceId = row.id,
+                                    address = row.address,
+                                    onConnect = {
+                                        if (row.address.isNotBlank()) manager.connectTo(row.address)
+                                        else manager.connectToSaved(row.id)
+                                    },
+                                    onClick = { onOpenDevicePage(row.id, row.name) }
+                                )
+                            }
+                        }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        MiuixNearbyHeader(
+                            scanning = state.discovery.scanning,
+                            onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                         )
+                        nearbyRows.forEachIndexed { index, row ->
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                                MiuixCard {
+                                    MiuixDeviceRow(manager, row, {})
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
-        item(key = "nearby-header") {
-            MiuixNearbyHeader(
-                scanning = state.discovery.scanning,
-                onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
-            )
-        }
-        nearbyRows.forEachIndexed { index, row ->
-            item(key = "nearby-${row.id.ifBlank { row.address }}-${row.address}") {
-                // 附近可用设备卡片之间间距在基础上再增加 35%
-                Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
-                    MiuixCard {
-                        MiuixDeviceRow(manager, row, {})
+        } else {
+            if (savedRows.isNotEmpty()) {
+                item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
+                savedRows.forEachIndexed { index, row ->
+                    item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
+                        // 已配对设备卡片之间间距在基础上再增加 35%
+                        Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                            MiuixSavedDeviceCard(
+                                name = row.name.ifBlank { "未知设备" },
+                                deviceId = row.id,
+                                address = row.address,
+                                onConnect = {
+                                    if (row.address.isNotBlank()) manager.connectTo(row.address)
+                                    else manager.connectToSaved(row.id)
+                                },
+                                onClick = { onOpenDevicePage(row.id, row.name) }
+                            )
+                        }
+                    }
+                }
+            }
+            item(key = "nearby-header") {
+                MiuixNearbyHeader(
+                    scanning = state.discovery.scanning,
+                    onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
+                )
+            }
+            nearbyRows.forEachIndexed { index, row ->
+                item(key = "nearby-${row.id.ifBlank { row.address }}-${row.address}") {
+                    // 附近可用设备卡片之间间距在基础上再增加 35%
+                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                        MiuixCard {
+                            MiuixDeviceRow(manager, row, {})
+                        }
                     }
                 }
             }
@@ -2194,6 +2259,7 @@ private fun MiuixSavedDeviceCard(
 private fun MiuixAboutPage(
     visible: Boolean,
     scrollProgress: MutableState<Float>,
+    wide: Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -2260,81 +2326,20 @@ private fun MiuixAboutPage(
                 onClick = { }
             )
     ) {
-        FlowingGlowBackground(
-            modifier = Modifier.fillMaxSize(),
-            areaFraction = 0.5f,
-            // 在绘制阶段读取，滚动时不做整页重组
-            glowAlpha = { (1f - scrollProgress.value).coerceIn(0f, 1f) },
-            timeState = glowTime
-        )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                top = topContentInset,
-                bottom = 96.dp
-            )
-        ) {
-            // ---- 应用图标 + 版本：占视口 50% 高度居中，滚动时轻微缩小淡出 ----
-            item(key = "about-hero") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillParentMaxHeight(0.5f)
-                        // 累计上移 95px（此前 45px + 本次 50px）
-                        .offset(y = with(density) { (-95).toDp() })
-                        .graphicsLayer {
-                            // 绘制阶段读取滚动进度，避免每帧重组整页
-                            val spv = scrollProgress.value
-                            val s = 1f - spv * 0.1f
-                            scaleX = s
-                            scaleY = s
-                            alpha = (1f - spv * 1.3f).coerceIn(0f, 1f)
-                        },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    GlowMixedContent(
-                        modifier = Modifier.fillMaxWidth(0.38f).aspectRatio(1f),
-                        timeState = glowTime,
-                        active = heroActive
-                    ) {
-                        Image(
-                            painter = painterResource(
-                                if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
-                            ),
-                            contentDescription = "应用图标",
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    GlowMixedContent(
-                        modifier = Modifier.padding(top = 10.dp),
-                        timeState = glowTime,
-                        active = heroActive
-                    ) {
-                        Text(
-                            text = "NotificationRelay",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            // 留出少量边距，避免离屏混色层裁切文字右缘
-                            modifier = Modifier.padding(horizontal = 4.dp)
-                        )
-                    }
-                    Text(
-                        text = versionName,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-            }
+        // 关于页卡片半透明，让背景流光部分透出
+        val cardColor = MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f)
+        // 名称与图标的间距（默认 10dp，再上移 20px，且不为负）
+        val nameGap = (10.dp - with(density) { 20.toDp() }).coerceAtLeast(0.dp)
+
+        // 类别与卡片（单栏与大屏右栏共用）
+        fun LazyListScope.aboutSections() {
             item(key = "about-author") {
                 // 类别标题上下与卡片的间距与设置页一致（spacedBy + 标题内边距）
                 Box(Modifier.padding(top = MiuixPageItemSpacing)) {
                     MiuixSectionTitle("作者")
                 }
                 Box(Modifier.padding(top = MiuixPageItemSpacing)) {
-                    MiuixCard {
+                    MiuixCard(containerColor = cardColor) {
                         top.yukonga.miuix.kmp.preference.ArrowPreference(
                             title = "wochgn",
                             summary = "GitHub",
@@ -2353,7 +2358,7 @@ private fun MiuixAboutPage(
                     MiuixSectionTitle("链接")
                 }
                 Box(Modifier.padding(top = MiuixPageItemSpacing)) {
-                    MiuixCard {
+                    MiuixCard(containerColor = cardColor) {
                         top.yukonga.miuix.kmp.preference.ArrowPreference(
                             title = "GitHub 仓库",
                             summary = "查看源码与更新",
@@ -2367,7 +2372,7 @@ private fun MiuixAboutPage(
                     MiuixSectionTitle("开源组件")
                 }
                 Box(Modifier.padding(top = MiuixPageItemSpacing)) {
-                    MiuixCard {
+                    MiuixCard(containerColor = cardColor) {
                         top.yukonga.miuix.kmp.preference.ArrowPreference(
                             title = "Miuix",
                             summary = "HyperOS 风格 Compose UI 组件库",
@@ -2390,6 +2395,138 @@ private fun MiuixAboutPage(
                         )
                     }
                 }
+            }
+        }
+
+        if (wide) {
+            // 大屏：左右分栏。左栏居中偏上放图标/名称/版本，流光跟随该区域；右栏为类别与卡片
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    FlowingGlowBackground(
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f),
+                        areaFraction = 1f,
+                        glowAlpha = { 1f },
+                        timeState = glowTime
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(y = with(density) { (-40).toDp() }),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        GlowMixedContent(
+                            modifier = Modifier.fillMaxWidth(0.55f).aspectRatio(1f),
+                            timeState = glowTime
+                        ) {
+                            Image(
+                                painter = painterResource(
+                                    if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
+                                ),
+                                contentDescription = "应用图标",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        GlowMixedContent(
+                            modifier = Modifier.padding(top = nameGap),
+                            timeState = glowTime
+                        ) {
+                            Text(
+                                text = "NotificationRelay",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                // 留出少量边距，避免离屏混色层裁切文字右缘
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+                        Text(
+                            text = versionName,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        top = topContentInset,
+                        bottom = 96.dp
+                    )
+                ) {
+                    aboutSections()
+                }
+            }
+        } else {
+            FlowingGlowBackground(
+                modifier = Modifier.fillMaxSize(),
+                areaFraction = 0.5f,
+                // 在绘制阶段读取，滚动时不做整页重组
+                glowAlpha = { (1f - scrollProgress.value).coerceIn(0f, 1f) },
+                timeState = glowTime
+            )
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    top = topContentInset,
+                    bottom = 96.dp
+                )
+            ) {
+                // ---- 应用图标 + 版本：占视口 50% 高度居中，滚动时轻微缩小淡出 ----
+                item(key = "about-hero") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillParentMaxHeight(0.5f)
+                            // 累计上移 95px（此前 45px + 本次 50px）
+                            .offset(y = with(density) { (-95).toDp() })
+                            .graphicsLayer {
+                                // 绘制阶段读取滚动进度，避免每帧重组整页
+                                val spv = scrollProgress.value
+                                val s = 1f - spv * 0.1f
+                                scaleX = s
+                                scaleY = s
+                                alpha = (1f - spv * 1.3f).coerceIn(0f, 1f)
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        GlowMixedContent(
+                            modifier = Modifier.fillMaxWidth(0.38f).aspectRatio(1f),
+                            timeState = glowTime,
+                            active = heroActive
+                        ) {
+                            Image(
+                                painter = painterResource(
+                                    if (dark) R.drawable.about_logo_dark else R.drawable.about_logo_light
+                                ),
+                                contentDescription = "应用图标",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        GlowMixedContent(
+                            modifier = Modifier.padding(top = nameGap),
+                            timeState = glowTime,
+                            active = heroActive
+                        ) {
+                            Text(
+                                text = "NotificationRelay",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                // 留出少量边距，避免离屏混色层裁切文字右缘
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+                        Text(
+                            text = versionName,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
+                aboutSections()
             }
         }
         // 顶栏：仅返回按钮（与设备详情页一致）；拦截点击避免透传到被遮挡内容
@@ -3477,6 +3614,7 @@ private fun MiuixSwitchPref(
 @Composable
 private fun MiuixCard(
     modifier: Modifier = Modifier,
+    containerColor: Color? = null,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     Card(
@@ -3484,6 +3622,11 @@ private fun MiuixCard(
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .clip(MiuixCardShape),
+        colors = if (containerColor != null) {
+            CardDefaults.defaultColors(color = containerColor)
+        } else {
+            CardDefaults.defaultColors()
+        },
         content = content
     )
 }
