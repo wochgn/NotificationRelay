@@ -663,6 +663,7 @@ private fun MiuixAppContent(
                         .background(Color.Black)
                 )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
+                SecondaryBackdrop({ statusProgress.value }, { dialogProgress.value })
                 MiuixStatusDetailPage(
                     visible = showStatusPage.value,
                     onBack = { showStatusPage.value = false },
@@ -690,6 +691,7 @@ private fun MiuixAppContent(
                         .background(Color.Black)
                 )
                 // 已连接设备详情二级页：与工作状态二级页一致的转场
+                SecondaryBackdrop({ devicePageProgress.value }, { dialogProgress.value })
                 MiuixDeviceDetailPage(
                     peerId = devicePagePeerId,
                     peerName = devicePagePeerName,
@@ -714,6 +716,7 @@ private fun MiuixAppContent(
                         .secondaryPageCorner({ devicePageProgress.value }, deviceCornerDp)
                 )
                 // 关于页：与设备详情页一致的转场
+                SecondaryBackdrop({ aboutPageProgress.value }, { dialogProgress.value })
                 MiuixAboutPage(
                     visible = showAboutPage.value,
                     wide = widthSizeClass != WindowWidthSizeClass.Compact,
@@ -835,6 +838,7 @@ private fun MiuixAppContent(
                     .background(Color.Black)
             )
             // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
+            SecondaryBackdrop({ statusProgress.value }, { dialogProgress.value })
             MiuixStatusDetailPage(
                 visible = showStatusPage.value,
                 onBack = { showStatusPage.value = false },
@@ -862,6 +866,7 @@ private fun MiuixAppContent(
                     .background(Color.Black)
             )
             // 已连接设备详情二级页：与工作状态二级页一致的转场
+            SecondaryBackdrop({ devicePageProgress.value }, { dialogProgress.value })
             MiuixDeviceDetailPage(
                 peerId = devicePagePeerId,
                 peerName = devicePagePeerName,
@@ -886,6 +891,7 @@ private fun MiuixAppContent(
                     .secondaryPageCorner({ devicePageProgress.value }, deviceCornerDp)
             )
             // 关于页：与设备详情页一致的转场
+            SecondaryBackdrop({ aboutPageProgress.value }, { dialogProgress.value })
             MiuixAboutPage(
                 visible = showAboutPage.value,
                 wide = widthSizeClass != WindowWidthSizeClass.Compact,
@@ -1085,6 +1091,7 @@ private fun MiuixAppContent(
                         .background(Color.Black)
                 )
                 // 二级页：自右向左覆盖进入，左缘圆角匹配设备屏幕圆角
+                SecondaryBackdrop({ statusProgress.value }, { dialogProgress.value })
                 MiuixStatusDetailPage(
                     visible = showStatusPage.value,
                     onBack = { showStatusPage.value = false },
@@ -1112,6 +1119,7 @@ private fun MiuixAppContent(
                         .background(Color.Black)
                 )
                 // 已连接设备详情二级页：与工作状态二级页一致的转场
+                SecondaryBackdrop({ devicePageProgress.value }, { dialogProgress.value })
                 MiuixDeviceDetailPage(
                     peerId = devicePagePeerId,
                     peerName = devicePagePeerName,
@@ -1136,6 +1144,7 @@ private fun MiuixAppContent(
                         .secondaryPageCorner({ devicePageProgress.value }, deviceCornerDp)
                 )
                 // 关于页：与设备详情页一致的转场
+                SecondaryBackdrop({ aboutPageProgress.value }, { dialogProgress.value })
                 MiuixAboutPage(
                     visible = showAboutPage.value,
                     wide = widthSizeClass != WindowWidthSizeClass.Compact,
@@ -1779,6 +1788,14 @@ private fun MiuixDevicesScreen(
 
     // 取消配对/删除确认弹窗已上移至 MiuixAppContent，供设备列表与设备详情页共用
 
+    // 设备断开（含取消配对）后清除其「已处理配对」标记，重新配对时可再次弹出确认窗口
+    LaunchedEffect(state.peers) {
+        val active = state.peers.map { it.deviceId }.filter { it.isNotBlank() }.toSet()
+        if (pairHandledIds.any { it !in active }) {
+            pairHandledIds = pairHandledIds.filter { it in active }.toSet()
+        }
+    }
+
     // 配对确认：待确认设备驻留组合，退出时下滑动画；同一设备只弹一次，外部点击关闭后若仍未处理会重新弹出
     LaunchedEffect(state.peers, showPairDialog, pairDialogPeer) {
         val pending = state.peers.firstOrNull { it.needsConfirm }
@@ -1915,8 +1932,8 @@ private fun MiuixDevicesScreen(
                     Column(Modifier.weight(1f)) {
                         MiuixSectionTitle("已配对设备")
                         savedRows.forEachIndexed { index, row ->
-                            // 标题下首张卡片间距与设置页类别一致；卡片之间与非大屏一致
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else MiuixPageItemSpacing)) {
+                            // 标题下首张卡片与设置页类别一致；卡片之间与设置页「调试与日志」一致
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else MiuixPageItemSpacing)) {
                                 MiuixSavedDeviceCard(
                                     name = row.name.ifBlank { "未知设备" },
                                     deviceId = row.id,
@@ -1936,8 +1953,8 @@ private fun MiuixDevicesScreen(
                             onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                         )
                         nearbyRows.forEachIndexed { index, row ->
-                            // 标题下首张卡片间距与设置页类别一致；卡片之间与非大屏一致
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else MiuixPageItemSpacing)) {
+                            // 标题下首张卡片与设置页类别一致；卡片之间与设置页「调试与日志」一致
+                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else MiuixPageItemSpacing)) {
                                 MiuixCard {
                                     MiuixDeviceRow(manager, row, {})
                                 }
@@ -1952,7 +1969,7 @@ private fun MiuixDevicesScreen(
                 savedRows.forEachIndexed { index, row ->
                     item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
                         // 已配对设备卡片之间间距在基础上再增加 35%
-                        Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                        Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
                             MiuixSavedDeviceCard(
                                 name = row.name.ifBlank { "未知设备" },
                                 deviceId = row.id,
@@ -1976,7 +1993,7 @@ private fun MiuixDevicesScreen(
             nearbyRows.forEachIndexed { index, row ->
                 item(key = "nearby-${row.id.ifBlank { row.address }}-${row.address}") {
                     // 附近可用设备卡片之间间距在基础上再增加 35%
-                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.567f else 0.dp)) {
+                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
                         MiuixCard {
                             MiuixDeviceRow(manager, row, {})
                         }
@@ -3663,6 +3680,22 @@ private fun Modifier.secondaryPageCorner(progress: () -> Float, radius: Dp): Mod
         )
         clip = true
     }
+
+/**
+ * 二级页底部垫层：仅当二级页已完全展开、且弹窗正在做缩小/模糊动画时，
+ * 在二级页之下铺一层与页面同色的底，避免缩小后顶部/底部露出更深的底色。
+ */
+@Composable
+private fun SecondaryBackdrop(pageProgress: () -> Float, dialogProgress: () -> Float) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = if (pageProgress() >= 1f && dialogProgress() > 0.001f) 1f else 0f
+            }
+            .background(MiuixTheme.colorScheme.surface)
+    )
+}
 
 @Composable
 private fun MiuixSwitchPref(
