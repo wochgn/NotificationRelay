@@ -1932,8 +1932,8 @@ private fun MiuixDevicesScreen(
                     Column(Modifier.weight(1f)) {
                         MiuixSectionTitle("已配对设备")
                         savedRows.forEachIndexed { index, row ->
-                            // 标题下首张卡片与设置页类别一致；卡片之间与设置页「调试与日志」一致
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else MiuixPageItemSpacing)) {
+                            // 卡片间距与设置页「调试与日志」类别一致（MiuixAppsCardSpacing）
+                            Box(Modifier.padding(top = if (index > 0) MiuixAppsCardSpacing else MiuixPageItemSpacing)) {
                                 MiuixSavedDeviceCard(
                                     name = row.name.ifBlank { "未知设备" },
                                     deviceId = row.id,
@@ -1953,8 +1953,8 @@ private fun MiuixDevicesScreen(
                             onRefresh = { manager.startDiscovery(autoConnectSaved = !manager.isAutoReconnectPaused()) }
                         )
                         nearbyRows.forEachIndexed { index, row ->
-                            // 标题下首张卡片与设置页类别一致；卡片之间与设置页「调试与日志」一致
-                            Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else MiuixPageItemSpacing)) {
+                            // 卡片间距与设置页「调试与日志」类别一致（MiuixAppsCardSpacing）
+                            Box(Modifier.padding(top = if (index > 0) MiuixAppsCardSpacing else MiuixPageItemSpacing)) {
                                 MiuixCard {
                                     MiuixDeviceRow(manager, row, {})
                                 }
@@ -1968,8 +1968,8 @@ private fun MiuixDevicesScreen(
                 item(key = "saved-title") { MiuixSectionTitle("已配对设备") }
                 savedRows.forEachIndexed { index, row ->
                     item(key = "saved-${row.id.ifBlank { row.address }}-${row.address}") {
-                        // 已配对设备卡片之间间距在基础上再增加 35%
-                        Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
+                        // 卡片间距与设置页「调试与日志」类别一致
+                        Box(Modifier.padding(top = if (index > 0) MiuixAppsCardSpacing else 0.dp)) {
                             MiuixSavedDeviceCard(
                                 name = row.name.ifBlank { "未知设备" },
                                 deviceId = row.id,
@@ -1992,8 +1992,8 @@ private fun MiuixDevicesScreen(
             }
             nearbyRows.forEachIndexed { index, row ->
                 item(key = "nearby-${row.id.ifBlank { row.address }}-${row.address}") {
-                    // 附近可用设备卡片之间间距在基础上再增加 35%
-                    Box(Modifier.padding(top = if (index > 0) MiuixPageItemSpacing * 0.42f else 0.dp)) {
+                    // 卡片间距与设置页「调试与日志」类别一致
+                    Box(Modifier.padding(top = if (index > 0) MiuixAppsCardSpacing else 0.dp)) {
                         MiuixCard {
                             MiuixDeviceRow(manager, row, {})
                         }
@@ -2170,17 +2170,14 @@ private fun MiuixStatusDetailPage(visible: Boolean, onBack: () -> Unit, modifier
         modifier
             .fillMaxSize()
             .background(MiuixTheme.colorScheme.surface)
-            .pointerInput(Unit) {
-                // 二级页全屏覆盖时拦截触摸，避免透传到被覆盖的主页面
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    do {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
+            // 拦截点击避免透传到主页面；不使用手势消费循环，避免影响页面滑动
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { }
+            )
             .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
     ) {
         // 顶栏：仅返回按钮，图标左缘与卡片内文字左对齐（28dp）
         Box(
@@ -2695,17 +2692,14 @@ private fun MiuixDeviceDetailPage(
         modifier
             .fillMaxSize()
             .background(MiuixTheme.colorScheme.surface)
-            .pointerInput(Unit) {
-                // 二级页全屏覆盖时拦截触摸，避免透传到被覆盖的主页面
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    do {
-                        val event = awaitPointerEvent()
-                        event.changes.forEach { it.consume() }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
-            .statusBarsPadding(),
+            // 拦截点击避免透传到主页面；不使用手势消费循环，避免影响页面滑动
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { }
+            )
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(MiuixPageItemSpacing)
     ) {
         // 顶栏：仅返回按钮，与工作状态二级页一致
